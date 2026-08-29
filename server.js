@@ -21,7 +21,7 @@ import cors from "cors";
 import { sendResponse } from "./app/utils/sendResposeType.js";
 // Database connection
 import  connectDB  from "./app/config/dbConnect.js";
-
+import userRoutes from "./app/modules/user/routes.js";
 
 
 // Socket.IO
@@ -60,13 +60,8 @@ connectDB();
 // API ROUTES
 // ============================================================
 
-// Authentication / User APIs
-// Example:
-// POST /api/auth/guest-login
-// POST /api/auth/login
-// POST /api/auth/register
 
-// app.use("/api/user", userRoutes);
+app.use("/api/user", userRoutes);
 
 
 // ============================================================
