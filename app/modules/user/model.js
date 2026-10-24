@@ -5,9 +5,6 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    // deviceToken: {
-    //     type: String,
-    // },
     email: {
         type: String,
         required: true,
@@ -17,9 +14,15 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    // profileUrl: {
-    //     type: String,
-    // },
+    role: {
+        type: String,
+        enum: ['admin', 'user'],
+        default: 'user',
+    },
+    passkey: {
+        type: String,
+        default: '',
+    },
     createdAt: {
         type: Date,
         default: Date.now,
