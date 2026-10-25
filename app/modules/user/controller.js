@@ -37,8 +37,8 @@ export const RegisterUser = async (req, res) => {
     delete userObj.password;
 
     const userData = {
-      token,
       ...userObj,
+      token: token,
     };
 
     return sendResponse(res, 200, true, "User registered successfully", userData);
@@ -63,18 +63,13 @@ export const loginUser = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return sendResponse(res, 400, false, "Invalid email or password");
 
-    // // If passkey provided in login and user passkey is empty, update passkey
-    // if (passkey && !user.passkey) {
-    //   user.passkey = passkey;
-    //   await user.save();
-    // }
-
+    // Generate fresh JWT Token
     const token = jwtTokenGenerator(user._id);
     const userObj = user.toObject();
     delete userObj.password;
     const userData = {
-      token,
       ...userObj,
+      token: token, 
     };
 
     return sendResponse(res, 200, true, "Login successful", userData);

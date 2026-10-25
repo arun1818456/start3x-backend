@@ -5,25 +5,36 @@ const passkeySchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+
     passkey: {
         type: String,
     },
+
     name: {
         type: String,
         default: 'Ramananda',
     },
+
+    isActive: {
+        type: Boolean,
+        default: true,
+    },
+
     createdBy: {
         type: String,
         default: 'Admin',
     },
+
     rank: {
         type: String,
         default: '#1',
     },
+
     createdAt: {
         type: Date,
         default: Date.now,
     },
+
 }, {
     _id: false,
     versionKey: false,

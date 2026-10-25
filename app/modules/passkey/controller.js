@@ -14,9 +14,7 @@ const generateRandomKey = () => {
 // ✅ GENERATE PASSKEY (TOKEN AUTHENTICATED ADMIN)
 export const generatePasskey = async (req, res) => {
     try {
-        console.log("📥 Generate Passkey Request from User:", req.user?.name || req.user?.email || "Admin");
 
-        // 1. Get creator name from authenticated user's JWT token
         const creatorName = req.user?.name || req.user?.email || "Admin";
 
         // 2. Generate unique 12-character passkey string
@@ -27,11 +25,9 @@ export const generatePasskey = async (req, res) => {
             existing = await Passkey.findOne({ $or: [{ _id: generatedKey }, { passkey: generatedKey }] });
         }
 
-        // 3. Auto-calculate rank #1, #2, #3, etc.
         const totalPasskeys = await Passkey.countDocuments();
         const passkeyRank = `#${totalPasskeys + 1}`;
 
-        // 4. Set assigned name to "XXXXXXXXX" as requested
         const passkeyName = "XXXXXXXXX";
 
         // 5. Create Passkey document in MongoDB
@@ -42,13 +38,8 @@ export const generatePasskey = async (req, res) => {
             name: passkeyName,
             createdBy: creatorName,
         });
-
-        console.log("✅ Created Passkey Doc:", newPasskey.toObject());
-
-        // 6. Return response object with generated passkey
         return sendResponse(res, 200, true, "Passkey generated successfully", newPasskey.toObject());
     } catch (error) {
-        console.error("Generate Passkey Error:", error);
         return sendResponse(res, 500, false, "Error generating passkey", null, error.message);
     }
 };
@@ -64,46 +55,21 @@ export const listPasskeys = async (req, res) => {
     }
 };
 
-// ✅ VERIFY PASSKEY
-export const verifyPasskey = async (req, res) => {
+// ✅ TOGGLE PASSKEY STATUS
+export const togglePasskeyStatus = async (req, res) => {
     try {
-        const { passkey, _id } = req.body || {};
-        const keyToVerify = _id || passkey;
+        const passkey = await Passkey.findById(req.params.id);
 
-        if (!keyToVerify) {
-            return sendResponse(res, 400, false, "Passkey is required");
-        }
-
-        const found = await Passkey.findOne({
-            $or: [{ _id: keyToVerify.trim() }, { passkey: keyToVerify.trim() }]
-        });
-
-        if (!found) {
-            return sendResponse(res, 404, false, "Invalid Passkey. Please check with Admin");
-        }
-
-        return sendResponse(res, 200, true, "Passkey verified successfully", found);
-    } catch (error) {
-        console.error("Verify Passkey Error:", error);
-        return sendResponse(res, 500, false, "Error verifying passkey", null, error.message);
-    }
-};
-
-// ✅ DELETE PASSKEY
-export const deletePasskey = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const deleted = await Passkey.findOneAndDelete({
-            $or: [{ _id: id }, { passkey: id }]
-        });
-
-        if (!deleted) {
+        if (!passkey) {
             return sendResponse(res, 404, false, "Passkey not found");
         }
 
-        return sendResponse(res, 200, true, "Passkey removed successfully", deleted);
+        passkey.isActive = !passkey.isActive;
+        await passkey.save();
+
+        return sendResponse(res, 200, true, "Passkey status updated successfully", passkey);
     } catch (error) {
-        console.error("Delete Passkey Error:", error);
-        return sendResponse(res, 500, false, "Error deleting passkey", null, error.message);
+        console.error("Toggle Passkey Status Error:", error);
+        return sendResponse(res, 500, false, "Error updating passkey status", null, error.message);
     }
 };
