@@ -1,4 +1,5 @@
 import User from "./model.js";
+import Passkey from "../passkey/model.js";
 import bcrypt from "bcryptjs";
 import { jwtTokenGenerator } from "../../utils/generateJWTtoken.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
@@ -6,13 +7,25 @@ import { sendResponse } from "../../utils/sendResposeType.js";
 // ✅ REGISTER USER
 export const RegisterUser = async (req, res) => {
   try {
-    console.log("📥 Register user request received:", req.body || {});
-    let { name, email, password, passkey, role } = req.body;
+    const { name, email: rawEmail, password, passkey: rawPasskey, role } = req.body || {};
 
-    email = email?.trim()?.toLowerCase();
+    const email = rawEmail?.trim()?.toLowerCase();
+    const passkey = typeof rawPasskey === "string" ? rawPasskey.trim() : "";
 
-    if (!email || !password) {
-      return sendResponse(res, 400, false, "Email and password are required");
+    if (!email || !password || !passkey) {
+      return sendResponse(res, 400, false, "Email, password, and passkey are required");
+    }
+
+    const validPasskey = await Passkey.findOne({
+      $or: [{ _id: passkey }, { passkey }],
+    });
+
+    if (!validPasskey) {
+      return sendResponse(res, 400, false, "Invalid passkey");
+    }
+
+    if (!validPasskey.isActive) {
+      return sendResponse(res, 403, false, "Passkey is inactive");
     }
 
     // Check existing user
@@ -22,14 +35,13 @@ export const RegisterUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userRole = (role === 'admin' || email === 'admin@gmail.com') ? 'admin' : 'user';
 
     const newUser = await User.create({
-      name: name || (userRole === 'admin' ? 'Admin' : 'User'),
+      name: name || "User",
       email,
       password: hashedPassword,
-      role: userRole,
-      passkey: passkey || '',
+      role: role || "user",
+      passkey: validPasskey.passkey || validPasskey._id,
     });
 
     const token = jwtTokenGenerator(newUser._id);
@@ -76,20 +88,5 @@ export const loginUser = async (req, res) => {
   } catch (error) {
     console.error("Login Error:", error);
     return sendResponse(res, 500, false, "Error logging in user", null, error.message);
-  }
-};
-
-// ✅ GET USER DETAILS
-export const getUserDetails = async (req, res) => {
-  try {
-    const userId = req.user.id || req.user._id;
-    const user = await User.findById(userId).select("-password");
-    if (!user) {
-      return sendResponse(res, 404, false, "User not found");
-    }
-    return sendResponse(res, 200, true, "User details fetched successfully", user.toObject());
-  } catch (error) {
-    console.error(error);
-    return sendResponse(res, 500, false, "Error fetching user details", null, error.message);
   }
 };
