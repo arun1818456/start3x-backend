@@ -1,9 +1,13 @@
 import express from 'express';
-import { RegisterUser, loginUser } from './controller.js';
+import auth from "../../middleWare/authWare.js";
+import { RegisterUser, loginUser, updateClientInfo, getUserDetails, getAllClientsInfo } from './controller.js';
 
 const router = express.Router();
 
 router.post('/create', RegisterUser);
 router.post('/login', loginUser);
+router.put('/update-client-info', auth, updateClientInfo);
+router.get('/details', auth, getUserDetails);
+router.get('/clients-info', auth, getAllClientsInfo);
 
 export default router;
