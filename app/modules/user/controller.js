@@ -1,4 +1,5 @@
 import User from "./model.js";
+import Passkey from "../passkey/model.js";
 import bcrypt from "bcryptjs";
 import { jwtTokenGenerator } from "../../utils/generateJWTtoken.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
@@ -21,14 +22,39 @@ export const RegisterUser = async (req, res) => {
       return sendResponse(res, 400, false, "Email already exists");
     }
 
+    // Verify Passkey & check if Passkey already has complete clientInfo
+    let validPasskeyDoc = null;
+    if (passkey) {
+      validPasskeyDoc = await Passkey.findOne({
+        $or: [{ _id: passkey }, { passkey: passkey }]
+      });
+
+      if (!validPasskeyDoc) {
+        return sendResponse(res, 400, false, "Invalid Passkey. Please check with Admin");
+      }
+
+      if (validPasskeyDoc.isActive === false) {
+        return sendResponse(res, 400, false, "This passkey has been deactivated by Admin");
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
+    const userRole = (role === 'admin' || email === 'admin@gmail.com') ? 'admin' : 'user';
+
+    // Check if passkey setup is already complete
+    let isSetupComplete = false;
+    if (validPasskeyDoc && validPasskeyDoc.clientInfo && validPasskeyDoc.clientInfo.isSetupComplete) {
+      isSetupComplete = true;
+      console.log("🎯 Passkey setup is ALREADY complete! Setting isSetupComplete = true for new user");
+    }
 
     const newUser = await User.create({
-      name: name || "User",
+      name: name || (validPasskeyDoc?.name && validPasskeyDoc?.name !== 'XXXXXXXXX' ? validPasskeyDoc.name : 'User'),
       email,
       password: hashedPassword,
-      role: role || "user",
-      passkey: validPasskey.passkey || validPasskey._id,
+      role: userRole,
+      passkey: passkey || '',
+      isSetupComplete: isSetupComplete,
     });
 
     const token = jwtTokenGenerator(newUser._id);
@@ -50,7 +76,7 @@ export const RegisterUser = async (req, res) => {
 // ✅ LOGIN USER
 export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body || {};
+    const { email, password, passkey } = req.body || {};
     console.log("📥 Login request received:", req.body || {});
     if (!email || !password) {
       return sendResponse(res, 400, false, "Email and password are required");
@@ -62,83 +88,36 @@ export const loginUser = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return sendResponse(res, 400, false, "Invalid email or password");
 
+    // Sync isSetupComplete status from Passkey document
+    const targetPasskey = passkey || user.passkey;
+    if (targetPasskey) {
+      user.passkey = targetPasskey;
+      const passkeyDoc = await Passkey.findOne({
+        $or: [{ _id: targetPasskey }, { passkey: targetPasskey }]
+      });
+      if (passkeyDoc && passkeyDoc.clientInfo && passkeyDoc.clientInfo.isSetupComplete) {
+        user.isSetupComplete = true;
+        console.log("🎯 Passkey setup is ALREADY complete! Setting user.isSetupComplete = true on login");
+      }
+      await user.save();
+    }
+
     // Generate fresh JWT Token
     const token = jwtTokenGenerator(user._id);
     const userObj = user.toObject();
     delete userObj.password;
+
     const userData = {
       ...userObj,
-      token: token, 
+      token: token,
     };
+
+    console.log("✅ Login Response Data with Token:", userData);
 
     return sendResponse(res, 200, true, "Login successful", userData);
   } catch (error) {
     console.error("Login Error:", error);
     return sendResponse(res, 500, false, "Error logging in user", null, error.message);
-  }
-};
-
-// ✅ UPDATE CLIENT INFO / ONBOARDING SETUP
-export const updateClientInfo = async (req, res) => {
-  try {
-    const userId = req.user._id || req.user.id;
-    console.log("📥 Update Client Info request received for user:", userId, req.body || {});
-
-    const {
-      legalName,
-      companyName,
-      gstName,
-      gstNumber,
-      phone,
-      targetedLocation,
-      fullAddress,
-      onGrid3kW,
-      onGrid4kW,
-      onGrid5kW,
-      hybrid3kW,
-      hybrid4kW,
-      hybrid5kW,
-      inverterSpec,
-      batterySpec,
-    } = req.body || {};
-
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      {
-        $set: {
-          clientInfo: {
-            legalName: legalName || '',
-            companyName: companyName || '',
-            gstName: gstName || '',
-            gstNumber: gstNumber || '',
-            phone: phone || '',
-            targetedLocation: targetedLocation || '',
-            fullAddress: fullAddress || '',
-            onGrid3kW: onGrid3kW || '',
-            onGrid4kW: onGrid4kW || '',
-            onGrid5kW: onGrid5kW || '',
-            hybrid3kW: hybrid3kW || '',
-            hybrid4kW: hybrid4kW || '',
-            hybrid5kW: hybrid5kW || '',
-            inverterSpec: inverterSpec || '',
-            batterySpec: batterySpec || '',
-            isSetupComplete: true,
-          },
-          ...(companyName && { name: companyName }),
-        },
-      },
-      { new: true }
-    ).select('-password');
-
-    if (!updatedUser) {
-      return sendResponse(res, 404, false, "User not found");
-    }
-
-    const userObj = updatedUser.toObject();
-    return sendResponse(res, 200, true, "Client info updated successfully", userObj);
-  } catch (error) {
-    console.error("Update Client Info Error:", error);
-    return sendResponse(res, 500, false, "Error updating client info", null, error.message);
   }
 };
 
