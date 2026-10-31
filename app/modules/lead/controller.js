@@ -1,4 +1,5 @@
 import Lead from "./model.js";
+import CallResponse from "../response/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
 
 // ✅ CREATE LEAD / ASSIGN LEAD TO PASSKEY
@@ -61,7 +62,7 @@ export const getLeads = async (req, res) => {
         }
 
         const leads = await Lead.find({ passkey: targetPasskey })
-            .populate('responses')
+            .populate({ path: 'responses', strictPopulate: false })
             .sort({ createdAt: -1 });
 
         return sendResponse(res, 200, true, "Leads fetched successfully", leads);
@@ -96,7 +97,7 @@ export const updateLead = async (req, res) => {
         }
 
         await lead.save();
-        await lead.populate('responses');
+        await lead.populate({ path: 'responses', strictPopulate: false });
 
         return sendResponse(res, 200, true, "Lead updated successfully", lead);
     } catch (error) {

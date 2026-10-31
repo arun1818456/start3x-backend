@@ -163,13 +163,12 @@ export const updateClientInfo = async (req, res) => {
     if (companyName) passkeyDoc.name = companyName;
     await passkeyDoc.save();
 
-    // In USER document, ONLY set isSetupComplete = true!
+    // In USER document, ONLY set isSetupComplete = true! (Do NOT overwrite User's registered name)
     await User.updateMany(
       { passkey: userPasskeyStr },
       {
         $set: {
           isSetupComplete: true,
-          ...(companyName && { name: companyName }),
         },
       }
     );

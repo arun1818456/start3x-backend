@@ -8,12 +8,13 @@ import { sendResponse } from "../../utils/sendResposeType.js";
 export const RegisterUser = async (req, res) => {
   try {
     console.log("📥 Register user request received:", req.body || {});
-    let { name, email, password, passkey, role } = req.body;
+    let { name, email, password, passkey } = req.body || {};
+    const userName = (name || '').trim();
 
     email = email?.trim()?.toLowerCase();
 
-    if (!email || !password) {
-      return sendResponse(res, 400, false, "Email and password are required");
+    if (!email || !password || !name ) {
+      return sendResponse(res, 400, false, "Email, password, and full name are required");
     }
 
     // Check existing user
@@ -39,7 +40,6 @@ export const RegisterUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userRole = (role === 'admin' || email === 'admin@gmail.com') ? 'admin' : 'user';
 
     // Check if passkey setup is already complete
     let isSetupComplete = false;
@@ -49,10 +49,10 @@ export const RegisterUser = async (req, res) => {
     }
 
     const newUser = await User.create({
-      name: name || (validPasskeyDoc?.name && validPasskeyDoc?.name !== 'XXXXXXXXX' ? validPasskeyDoc.name : 'User'),
+      name: name || '',
       email,
       password: hashedPassword,
-      role: userRole,
+      role: "user",
       passkey: passkey || '',
       isSetupComplete: isSetupComplete,
     });
@@ -76,7 +76,7 @@ export const RegisterUser = async (req, res) => {
 // ✅ LOGIN USER
 export const loginUser = async (req, res) => {
   try {
-    const { email, password, passkey } = req.body || {};
+    const { email, password} = req.body || {};
     console.log("📥 Login request received:", req.body || {});
     if (!email || !password) {
       return sendResponse(res, 400, false, "Email and password are required");
@@ -87,20 +87,6 @@ export const loginUser = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return sendResponse(res, 400, false, "Invalid email or password");
-
-    // Sync isSetupComplete status from Passkey document
-    const targetPasskey = passkey || user.passkey;
-    if (targetPasskey) {
-      user.passkey = targetPasskey;
-      const passkeyDoc = await Passkey.findOne({
-        $or: [{ _id: targetPasskey }, { passkey: targetPasskey }]
-      });
-      if (passkeyDoc && passkeyDoc.clientInfo && passkeyDoc.clientInfo.isSetupComplete) {
-        user.isSetupComplete = true;
-        console.log("🎯 Passkey setup is ALREADY complete! Setting user.isSetupComplete = true on login");
-      }
-      await user.save();
-    }
 
     // Generate fresh JWT Token
     const token = jwtTokenGenerator(user._id);

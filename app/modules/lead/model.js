@@ -50,7 +50,10 @@ const leadSchema = new mongoose.Schema({
         type: String,
         default: '',
     },
-    
+    responses: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'CallResponse',
+    }],
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
@@ -61,6 +64,7 @@ const leadSchema = new mongoose.Schema({
     },
 }, {
     versionKey: false,
+    strictPopulate: false,
 });
 
 const Lead = mongoose.model('Lead', leadSchema);

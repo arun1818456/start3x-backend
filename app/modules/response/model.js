@@ -37,6 +37,10 @@ const callResponseSchema = new mongoose.Schema({
         type: String,
         default: '',
     },
+    reminder: {
+        type: String,
+        default: null,
+    },
     callDate: {
         type: String,
         default: '',

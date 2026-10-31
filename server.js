@@ -25,6 +25,7 @@ import userRoutes from "./app/modules/user/routes.js";
 import passkeyRoutes from "./app/modules/passkey/routes.js";
 import leadRoutes from "./app/modules/lead/routes.js";
 import responseRoutes from "./app/modules/response/routes.js";
+import chatRoutes from "./app/modules/chat/routes.js";
 
 
 // Socket.IO
@@ -67,6 +68,7 @@ app.use("/api/user", userRoutes);
 app.use("/api/passkey", passkeyRoutes);
 app.use("/api/lead", leadRoutes);
 app.use("/api/response", responseRoutes);
+app.use("/api/chat", chatRoutes);
 
 
 // ============================================================

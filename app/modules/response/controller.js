@@ -14,6 +14,7 @@ export const createResponse = async (req, res) => {
             meetingScheduled,
             callback,
             text,
+            reminder,
             callDate,
         } = req.body || {};
 
@@ -56,6 +57,7 @@ export const createResponse = async (req, res) => {
             meetingScheduled: meetingScheduled || null,
             callback: callback || null,
             text: text || '',
+            reminder: reminder || null,
             callDate: callDate || new Date().toLocaleString(),
         });
 
@@ -108,7 +110,7 @@ export const getResponses = async (req, res) => {
 export const updateResponse = async (req, res) => {
     try {
         const { id } = req.params;
-        const { outcome, meetingScheduled, callback, text, callDate } = req.body || {};
+        const { outcome, meetingScheduled, callback, text, reminder, callDate } = req.body || {};
 
         const responseDoc = await CallResponse.findById(id);
         if (!responseDoc) {
@@ -119,6 +121,7 @@ export const updateResponse = async (req, res) => {
         if (meetingScheduled !== undefined) responseDoc.meetingScheduled = meetingScheduled;
         if (callback !== undefined) responseDoc.callback = callback;
         if (text !== undefined) responseDoc.text = text;
+        if (reminder !== undefined) responseDoc.reminder = reminder;
         if (callDate !== undefined) responseDoc.callDate = callDate;
 
         await responseDoc.save();
