@@ -22,13 +22,9 @@ const leadSchema = new mongoose.Schema({
         type: String,
         default: 'Sunrays',
     },
-    status: {
-        type: String,
-        default: 'To-Do:',
-    },
     date: {
         type: String,
-        default: 'October 23, 2026',
+        default: Date.now(),
     },
     phoneNumber: {
         type: String,
@@ -50,21 +46,12 @@ const leadSchema = new mongoose.Schema({
         type: String,
         default: '',
     },
-    responses: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'CallResponse',
-    }],
-    createdBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-    },
     createdAt: {
         type: Date,
         default: Date.now,
     },
 }, {
     versionKey: false,
-    strictPopulate: false,
 });
 
 const Lead = mongoose.model('Lead', leadSchema);

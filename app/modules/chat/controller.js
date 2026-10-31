@@ -1,5 +1,6 @@
 import Chat from "./model.js";
 import Lead from "../lead/model.js";
+import "../response/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
 
 // ✅ CREATE / SEND CHAT MESSAGE (WITH OPTIONAL FLAGGED LEAD)
@@ -52,7 +53,7 @@ export const sendChatMessage = async (req, res) => {
         // Populate flaggedLead before returning
         const populatedMessage = await Chat.findById(newChatMessage._id).populate({
             path: 'flaggedLead',
-            populate: { path: 'responses', strictPopulate: false },
+            populate: { path: 'responses', options: { sort: { createdAt: -1 } } },
             strictPopulate: false,
         });
 
@@ -75,7 +76,7 @@ export const getChatMessages = async (req, res) => {
         const messages = await Chat.find(filter)
             .populate({
                 path: 'flaggedLead',
-                populate: { path: 'responses', strictPopulate: false },
+                populate: { path: 'responses', options: { sort: { createdAt: -1 } } },
                 strictPopulate: false,
             })
             .sort({ createdAt: 1 });

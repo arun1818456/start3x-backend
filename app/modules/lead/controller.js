@@ -40,7 +40,6 @@ export const createLead = async (req, res) => {
             kw: kw || '',
             electricityBill: electricityBill || '',
             textNote: textNote || '',
-            responses: [],
             createdBy: req.user?._id || null,
         });
 
@@ -62,7 +61,6 @@ export const getLeads = async (req, res) => {
         }
 
         const leads = await Lead.find({ passkey: targetPasskey })
-            .populate({ path: 'responses', strictPopulate: false })
             .sort({ createdAt: -1 });
 
         return sendResponse(res, 200, true, "Leads fetched successfully", leads);
@@ -76,7 +74,7 @@ export const getLeads = async (req, res) => {
 export const updateLead = async (req, res) => {
     try {
         const { id } = req.params;
-        const { responses, status, name, location, company, phoneNumber, altPhoneNumber, kw, electricityBill, textNote } = req.body || {};
+        const { status, name, location, company, phoneNumber, altPhoneNumber, kw, electricityBill, textNote } = req.body || {};
 
         const lead = await Lead.findById(id);
         if (!lead) {
@@ -92,12 +90,8 @@ export const updateLead = async (req, res) => {
         if (kw) lead.kw = kw;
         if (electricityBill) lead.electricityBill = electricityBill;
         if (textNote) lead.textNote = textNote;
-        if (responses && Array.isArray(responses)) {
-            lead.responses = responses.map((r) => (typeof r === 'object' && r._id) ? r._id : r);
-        }
-
         await lead.save();
-        await lead.populate({ path: 'responses', strictPopulate: false });
+        await lead.populate({ path: 'responses', options: { sort: { createdAt: -1 } } });
 
         return sendResponse(res, 200, true, "Lead updated successfully", lead);
     } catch (error) {

@@ -61,9 +61,7 @@ export const createResponse = async (req, res) => {
             callDate: callDate || new Date().toLocaleString(),
         });
 
-        // 2. Add CallResponse ObjectId reference to Lead's responses array
         if (leadDoc) {
-            leadDoc.responses.unshift(newResponse._id);
             if (outcome === 'Got a meeting' || outcome === 'Got a callback') {
                 leadDoc.status = 'Done Task:';
             }
@@ -133,24 +131,13 @@ export const updateResponse = async (req, res) => {
     }
 };
 
-// ✅ DELETE CALL RESPONSE (REMOVES FROM RESPONSES COLLECTION & LEAD REFERENCE)
+// ✅ DELETE CALL RESPONSE
 export const deleteResponse = async (req, res) => {
     try {
         const { id } = req.params;
         const deleted = await CallResponse.findByIdAndDelete(id);
         if (!deleted) {
             return sendResponse(res, 404, false, "Call response not found");
-        }
-
-        // Remove ObjectId reference from Lead.responses array
-        if (deleted.leadId) {
-            try {
-                await Lead.findByIdAndUpdate(deleted.leadId, {
-                    $pull: { responses: deleted._id }
-                });
-            } catch (e) {
-                console.error("Error pulling response reference from Lead:", e);
-            }
         }
 
         return sendResponse(res, 200, true, "Call response deleted successfully", deleted);
