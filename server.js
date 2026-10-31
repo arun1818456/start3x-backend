@@ -24,6 +24,7 @@ import connectDB from "./app/config/dbConnect.js";
 import userRoutes from "./app/modules/user/routes.js";
 import passkeyRoutes from "./app/modules/passkey/routes.js";
 import leadRoutes from "./app/modules/lead/routes.js";
+import responseRoutes from "./app/modules/response/routes.js";
 
 
 // Socket.IO
@@ -65,6 +66,7 @@ connectDB();
 app.use("/api/user", userRoutes);
 app.use("/api/passkey", passkeyRoutes);
 app.use("/api/lead", leadRoutes);
+app.use("/api/response", responseRoutes);
 
 
 // ============================================================

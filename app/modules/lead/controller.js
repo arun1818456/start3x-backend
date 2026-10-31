@@ -50,7 +50,7 @@ export const createLead = async (req, res) => {
     }
 };
 
-// ✅ GET LEADS BY PASSKEY
+// ✅ GET LEADS BY PASSKEY (POPULATES RESPONSES FROM SEPARATE COLLECTION)
 export const getLeads = async (req, res) => {
     try {
         const { passkey } = req.query;
@@ -60,7 +60,10 @@ export const getLeads = async (req, res) => {
             return sendResponse(res, 400, false, "Passkey is required to fetch leads");
         }
 
-        const leads = await Lead.find({ passkey: targetPasskey }).sort({ createdAt: -1 });
+        const leads = await Lead.find({ passkey: targetPasskey })
+            .populate('responses')
+            .sort({ createdAt: -1 });
+
         return sendResponse(res, 200, true, "Leads fetched successfully", leads);
     } catch (error) {
         console.error("Get Leads Error:", error);
@@ -89,10 +92,11 @@ export const updateLead = async (req, res) => {
         if (electricityBill) lead.electricityBill = electricityBill;
         if (textNote) lead.textNote = textNote;
         if (responses && Array.isArray(responses)) {
-            lead.responses = responses;
+            lead.responses = responses.map((r) => (typeof r === 'object' && r._id) ? r._id : r);
         }
 
         await lead.save();
+        await lead.populate('responses');
 
         return sendResponse(res, 200, true, "Lead updated successfully", lead);
     } catch (error) {

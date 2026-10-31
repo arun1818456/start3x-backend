@@ -1,14 +1,5 @@
 import mongoose from 'mongoose';
 
-const leadResponseSchema = new mongoose.Schema({
-    responseNumber: String,
-    outcome: String,
-    meetingScheduled: String,
-    callback: String,
-    text: String,
-    callDate: String,
-}, { _id: true });
-
 const leadSchema = new mongoose.Schema({
     passkey: {
         type: String,
@@ -59,7 +50,7 @@ const leadSchema = new mongoose.Schema({
         type: String,
         default: '',
     },
-    responses: [leadResponseSchema],
+    
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
