@@ -6,6 +6,10 @@ const leadSchema = new mongoose.Schema({
         required: true,
         index: true,
     },
+    status: {
+        type: String,
+        default: 'New',
+    },
     rank: {
         type: String,
         default: '#1',
@@ -36,6 +40,10 @@ const leadSchema = new mongoose.Schema({
     electricityBill: {
         type: String,
         default: '',
+    },
+    isCompleted: {
+        type: Boolean,
+        default: false,
     },
     createdAt: {
         type: Date,

@@ -10,9 +10,11 @@ export const createResponse = async (req, res) => {
             passkey,
             leadId,
             outcome,
-            meetingScheduled,
+            scheduledDate,
             text,
             reminder,
+            isDone,
+            isMissed,
         } = req.body || {};
 
         if (!outcome) {
@@ -42,17 +44,13 @@ export const createResponse = async (req, res) => {
             leadId: leadDoc._id,
             responseNumber: `Response #${totalResponses + 1}`,
             outcome,
-            meetingScheduled: meetingScheduled || null,
+            scheduledDate: scheduledDate || null,
             text: text || '',
             reminder: reminder || null,
+            isDone: isDone || false,
+            isMissed: isMissed || false,
         });
-
-        if (leadDoc) {
-            if (outcome === 'Got a meeting' || outcome === 'Got a callback') {
-                leadDoc.status = 'Done Task:';
-            }
-            await leadDoc.save();
-        }
+       updateLeadStatus(leadDoc._id); // Update lead status based on the latest response
 
         return sendResponse(res, 200, true, "Call response added successfully", newResponse);
     } catch (error) {
@@ -96,7 +94,7 @@ export const getResponses = async (req, res) => {
 export const updateResponse = async (req, res) => {
     try {
         const { id } = req.params;
-        const { outcome, meetingScheduled, text, reminder } = req.body || {};
+        const { outcome, scheduledDate, text, reminder, isDone } = req.body || {};
 
         const responseDoc = await CallResponse.findById(id);
         if (!responseDoc) {
@@ -104,12 +102,13 @@ export const updateResponse = async (req, res) => {
         }
 
         if (outcome !== undefined) responseDoc.outcome = outcome;
-        if (meetingScheduled !== undefined) responseDoc.meetingScheduled = meetingScheduled;
+        if (scheduledDate !== undefined) responseDoc.scheduledDate = scheduledDate;
         if (text !== undefined) responseDoc.text = text;
         if (reminder !== undefined) responseDoc.reminder = reminder;
+        if (isDone !== undefined) responseDoc.isDone = isDone;
 
         await responseDoc.save();
-
+        updateLeadStatus(responseDoc.leadId); // Update lead status based on the latest response
         return sendResponse(res, 200, true, "Call response updated successfully", responseDoc);
     } catch (error) {
         console.error("Update Call Response Error:", error);
@@ -130,5 +129,33 @@ export const deleteResponse = async (req, res) => {
     } catch (error) {
         console.error("Delete Call Response Error:", error);
         return sendResponse(res, 500, false, "Error deleting call response", null, error.message);
+    }
+};
+
+
+//// common method for updating lead status based on last  response 
+const updateLeadStatus = async (leadId) => {
+    try {
+        const lastResponse = await CallResponse.findOne({ leadId }).
+sort({ createdAt: -1 });
+        if (lastResponse) {
+            const leadDoc = await Lead.findById(leadId
+);            if (leadDoc) {
+                if (lastResponse.isDone === true) {
+                    leadDoc.status = 'Done Task:';
+                    leadDoc.isCompleted = true;
+                } else if (lastResponse.isMissed === true) {
+                    leadDoc.status = 'Missed Task:';
+                    leadDoc.isCompleted = true;
+                } else {
+                    leadDoc.status = 'To-do:';
+                    leadDoc.isCompleted = false;
+                }
+                leadDoc.scheduledDate = lastResponse.scheduledDate || null;
+                await leadDoc.save();
+            }
+        }
+    } catch (error) {
+        console.error("Update Lead Status Error:", error);
     }
 };

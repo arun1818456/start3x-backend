@@ -32,6 +32,14 @@ const callResponseSchema = new mongoose.Schema({
         type: String,
         default: null,
     },
+    isDone: {
+        type: Boolean,
+        default: false,
+    },
+    isMissed: {
+        type: Boolean,
+        default: false,
+    },
     createdAt: {
         type: Date,
         default: Date.now,
