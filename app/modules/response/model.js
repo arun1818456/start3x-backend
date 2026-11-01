@@ -12,11 +12,6 @@ const callResponseSchema = new mongoose.Schema({
         required: true,
         index: true,
     },
-    phoneNumber: {
-        type: String,
-        default: '',
-        index: true,
-    },
     responseNumber: {
         type: String,
         default: 'Response #1',
@@ -25,11 +20,7 @@ const callResponseSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    meetingScheduled: {
-        type: String,
-        default: null,
-    },
-    callback: {
+    scheduledDate: {
         type: String,
         default: null,
     },
@@ -41,16 +32,13 @@ const callResponseSchema = new mongoose.Schema({
         type: String,
         default: null,
     },
-    callDate: {
-        type: String,
-        default: '',
-    },
     createdAt: {
         type: Date,
         default: Date.now,
     },
 }, {
     versionKey: false,
+    collection: 'responses',
 });
 
 const CallResponse = mongoose.model('CallResponse', callResponseSchema);

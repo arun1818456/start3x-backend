@@ -18,13 +18,8 @@ const leadSchema = new mongoose.Schema({
         type: String,
         default: 'chandigarh',
     },
-    company: {
+    scheduledDate: {
         type: String,
-        default: 'Sunrays',
-    },
-    date: {
-        type: String,
-        default: Date.now(),
     },
     phoneNumber: {
         type: String,
@@ -39,10 +34,6 @@ const leadSchema = new mongoose.Schema({
         default: '',
     },
     electricityBill: {
-        type: String,
-        default: '',
-    },
-    textNote: {
         type: String,
         default: '',
     },

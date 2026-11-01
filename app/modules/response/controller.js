@@ -9,13 +9,10 @@ export const createResponse = async (req, res) => {
         let {
             passkey,
             leadId,
-            phoneNumber,
             outcome,
             meetingScheduled,
-            callback,
             text,
             reminder,
-            callDate,
         } = req.body || {};
 
         if (!outcome) {
@@ -24,41 +21,30 @@ export const createResponse = async (req, res) => {
 
         let leadDoc = null;
         if (leadId) {
-            try {
-                leadDoc = await Lead.findById(leadId);
-                if (leadDoc) {
-                    if (!passkey && leadDoc.passkey) passkey = leadDoc.passkey;
-                    if (!phoneNumber && leadDoc.phoneNumber) phoneNumber = leadDoc.phoneNumber;
-                }
-            } catch (e) {
-                console.error("Error looking up lead for passkey:", e);
-            }
+            leadDoc = await Lead.findById(leadId);
         }
 
-        passkey = passkey || req.user?.passkey || 'default';
-
-        if (!leadDoc && !leadId) {
-            return sendResponse(res, 400, false, "Lead ID or valid Lead reference is required");
+        if (!leadDoc) {
+            return sendResponse(res, 404, false, "Lead not found");
         }
+
+        passkey = leadDoc.passkey;
 
         // Count existing responses for this lead / passkey
-        const queryFilter = { passkey };
-        if (leadId) queryFilter.leadId = leadId;
+        const totalResponses = await CallResponse.countDocuments({
+            passkey,
+            leadId: leadDoc._id,
+        });
 
-        const totalResponses = await CallResponse.countDocuments(queryFilter);
-
-        // 1. Create CallResponse in CallResponse Collection
+        // Create the response in the shared responses collection.
         const newResponse = await CallResponse.create({
             passkey,
-            leadId: leadId || leadDoc?._id,
-            phoneNumber: phoneNumber || '',
+            leadId: leadDoc._id,
             responseNumber: `Response #${totalResponses + 1}`,
             outcome,
             meetingScheduled: meetingScheduled || null,
-            callback: callback || null,
             text: text || '',
             reminder: reminder || null,
-            callDate: callDate || new Date().toLocaleString(),
         });
 
         if (leadDoc) {
@@ -83,17 +69,19 @@ export const getResponses = async (req, res) => {
         const filter = {};
         if (leadId) {
             filter.leadId = leadId;
-        } else if (passkey && phoneNumber) {
-            filter.passkey = passkey;
-            filter.phoneNumber = phoneNumber;
-        } else if (passkey) {
-            filter.passkey = passkey;
-        } else if (phoneNumber) {
-            filter.phoneNumber = phoneNumber;
         }
 
         if (!passkey && !phoneNumber && !leadId) {
             return sendResponse(res, 400, false, "At least passkey, leadId, or phoneNumber is required to fetch responses");
+        }
+
+        if (passkey) filter.passkey = passkey;
+        if (phoneNumber && !leadId) {
+            const matchingLeads = await Lead.find(
+                { phoneNumber, ...(passkey ? { passkey } : {}) },
+                { _id: 1 },
+            );
+            filter.leadId = { $in: matchingLeads.map((lead) => lead._id) };
         }
 
         const responses = await CallResponse.find(filter).sort({ createdAt: -1 });
@@ -108,7 +96,7 @@ export const getResponses = async (req, res) => {
 export const updateResponse = async (req, res) => {
     try {
         const { id } = req.params;
-        const { outcome, meetingScheduled, callback, text, reminder, callDate } = req.body || {};
+        const { outcome, meetingScheduled, text, reminder } = req.body || {};
 
         const responseDoc = await CallResponse.findById(id);
         if (!responseDoc) {
@@ -117,10 +105,8 @@ export const updateResponse = async (req, res) => {
 
         if (outcome !== undefined) responseDoc.outcome = outcome;
         if (meetingScheduled !== undefined) responseDoc.meetingScheduled = meetingScheduled;
-        if (callback !== undefined) responseDoc.callback = callback;
         if (text !== undefined) responseDoc.text = text;
         if (reminder !== undefined) responseDoc.reminder = reminder;
-        if (callDate !== undefined) responseDoc.callDate = callDate;
 
         await responseDoc.save();
 

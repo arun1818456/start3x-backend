@@ -9,13 +9,9 @@ export const createLead = async (req, res) => {
         const {
             passkey,
             name,
-            rank,
             location,
-            company,
-            status,
-            date,
+            scheduledDate,
             phoneNumber,
-            altPhoneNumber,
             kw,
             electricityBill,
             textNote,
@@ -30,18 +26,32 @@ export const createLead = async (req, res) => {
         const newLead = await Lead.create({
             passkey,
             name,
-            rank: rank || `#${totalLeads + 1}`,
-            location: location || 'chandigarh',
-            company: company || 'Sunrays',
-            status: status || 'To-Do:',
-            date: date || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            rank: `#${totalLeads + 1}`,
+            location: location || '',
+            scheduledDate: scheduledDate ,
             phoneNumber: phoneNumber || '',
-            altPhoneNumber: altPhoneNumber || '',
             kw: kw || '',
             electricityBill: electricityBill || '',
-            textNote: textNote || '',
-            createdBy: req.user?._id || null,
         });
+
+        try {
+            await CallResponse.create({
+                passkey: newLead.passkey,
+                leadId: newLead._id,
+                responseNumber: 'Response #1',
+                outcome: 'Got a meeting',
+                scheduledDate: newLead.scheduledDate || null,
+                text: textNote  || '',
+                reminder: null,
+            });
+        } catch (error) {
+            try {
+                await Lead.findByIdAndDelete(newLead._id);
+            } catch (cleanupError) {
+                console.error("Create Lead Rollback Error:", cleanupError);
+            }
+            throw error;
+        }
 
         return sendResponse(res, 200, true, "Lead assigned successfully", newLead);
     } catch (error) {
