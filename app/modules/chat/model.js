@@ -6,6 +6,10 @@ const chatSchema = new mongoose.Schema({
         default: 'default',
         index: true,
     },
+    senderId: {
+        type: String,
+        default: '',
+    },
     senderName: {
         type: String,
         required: true,

@@ -2,6 +2,7 @@ import Chat from "./model.js";
 import Lead from "../lead/model.js";
 import "../response/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
+import { getIO } from "../../socket/socket_io.js";
 
 // ✅ CREATE / SEND CHAT MESSAGE (WITH OPTIONAL FLAGGED LEAD)
 export const sendChatMessage = async (req, res) => {
@@ -14,7 +15,14 @@ export const sendChatMessage = async (req, res) => {
         }
 
         passkey = passkey || req.user?.passkey || 'default';
-        senderName = senderName || req.user?.name || 'User';
+
+        // Enforce Admin name if user is admin or role is admin
+        const isAdmin = req.user?.role === 'admin' || (senderName && senderName.trim().toLowerCase() === 'admin');
+        if (isAdmin) {
+            senderName = 'Admin';
+        } else {
+            senderName = senderName || req.user?.name || 'User';
+        }
 
         let flaggedLeadDoc = null;
 
@@ -41,9 +49,11 @@ export const sendChatMessage = async (req, res) => {
         }
 
         const type = flaggedLeadDoc ? 'flagged_lead' : (messageType || 'text');
+        const senderId = req.user?._id || req.user?.id || req.body?.senderId || '';
 
         const newChatMessage = await Chat.create({
             passkey,
+            senderId,
             senderName,
             messageText,
             messageType: type,
@@ -56,6 +66,17 @@ export const sendChatMessage = async (req, res) => {
             populate: { path: 'responses', options: { sort: { createdAt: -1 } } },
             strictPopulate: false,
         });
+
+        // Broadcast to socket room in real-time
+        try {
+            const io = getIO();
+            if (io) {
+                io.to(passkey).emit("receive_message", populatedMessage);
+                console.log(`💬 HTTP chat message emitted via Socket to room [${passkey}]`);
+            }
+        } catch (socketErr) {
+            console.error("Socket emit error in sendChatMessage:", socketErr);
+        }
 
         return sendResponse(res, 200, true, "Message posted successfully", populatedMessage);
     } catch (error) {

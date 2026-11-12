@@ -62,7 +62,7 @@ export const createResponse = async (req, res) => {
 // ✅ GET RESPONSES BY LEAD ID, PASSKEY, OR PHONE NUMBER
 export const getResponses = async (req, res) => {
     try {
-        const { passkey, leadId, phoneNumber } = req.query;
+        const { passkey, leadId, phoneNumber, startDate, endDate } = req.query;
 
         const filter = {};
         if (leadId) {
@@ -80,6 +80,18 @@ export const getResponses = async (req, res) => {
                 { _id: 1 },
             );
             filter.leadId = { $in: matchingLeads.map((lead) => lead._id) };
+        }
+
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) {
+                const cleanDate = startDate.split('T')[0];
+                filter.createdAt.$gte = new Date(`${cleanDate}T00:00:00.000Z`);
+            }
+            if (endDate) {
+                const cleanDate = endDate.split('T')[0];
+                filter.createdAt.$lte = new Date(`${cleanDate}T23:59:59.999Z`);
+            }
         }
 
         const responses = await CallResponse.find(filter).sort({ createdAt: -1 });

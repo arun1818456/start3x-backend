@@ -30,7 +30,7 @@ import insightRoutes from "./app/modules/insight/routes.js";
 
 
 // Socket.IO
-// import { initSocketIO } from "./app/socket/socket_io.js";
+import { initSocketIO } from "./app/socket/socket_io.js";
 
 
 // ============================================================
@@ -98,10 +98,8 @@ const server = http.createServer(app);
 // ============================================================
 
 // Initialize Socket.IO
-// Used for real-time game communication
-// Example: Thulla game, players, cards, rooms, etc.
-
-// initSocketIO(server);
+// Used for real-time team group chat, notifications, etc.
+initSocketIO(server);
 
 
 // ============================================================
