@@ -25,11 +25,10 @@ const chatSchema = new mongoose.Schema({
         enum: ['text', 'flagged_lead', 'system'],
         default: 'text',
     },
-    flaggedLead: {
+    flaggedLeads: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Lead',
-        default: null,
-    },
+    }],
     createdAt: {
         type: Date,
         default: Date.now,

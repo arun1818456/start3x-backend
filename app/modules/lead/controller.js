@@ -84,24 +84,29 @@ export const getLeads = async (req, res) => {
 export const updateLead = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, name, location, company, phoneNumber, altPhoneNumber, kw, electricityBill, textNote } = req.body || {};
+        const { status, name, location, company, phoneNumber, altPhoneNumber, kw, electricityBill, textNote, scheduledDate } = req.body || {};
 
         const lead = await Lead.findById(id);
         if (!lead) {
             return sendResponse(res, 404, false, "Lead not found");
         }
 
-        if (status) lead.status = status;
-        if (name) lead.name = name;
-        if (location) lead.location = location;
-        if (company) lead.company = company;
-        if (phoneNumber) lead.phoneNumber = phoneNumber;
-        if (altPhoneNumber) lead.altPhoneNumber = altPhoneNumber;
-        if (kw) lead.kw = kw;
-        if (electricityBill) lead.electricityBill = electricityBill;
-        if (textNote) lead.textNote = textNote;
+        if (status !== undefined) lead.status = status;
+        if (name !== undefined) lead.name = name;
+        if (location !== undefined) lead.location = location;
+        if (company !== undefined) lead.company = company;
+        if (phoneNumber !== undefined) lead.phoneNumber = phoneNumber;
+        if (altPhoneNumber !== undefined) lead.altPhoneNumber = altPhoneNumber;
+        if (kw !== undefined) lead.kw = kw;
+        if (electricityBill !== undefined) lead.electricityBill = electricityBill;
+        if (textNote !== undefined) lead.textNote = textNote;
+        if (scheduledDate !== undefined) lead.scheduledDate = scheduledDate;
         await lead.save();
-        await lead.populate({ path: 'responses', options: { sort: { createdAt: -1 } } });
+        try {
+            await lead.populate({ path: 'responses', options: { sort: { createdAt: -1 } } });
+        } catch (e) {
+            console.warn("Could not populate responses in updateLead:", e.message);
+        }
 
         return sendResponse(res, 200, true, "Lead updated successfully", lead);
     } catch (error) {

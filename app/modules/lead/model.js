@@ -51,6 +51,14 @@ const leadSchema = new mongoose.Schema({
     },
 }, {
     versionKey: false,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+});
+
+leadSchema.virtual('responses', {
+    ref: 'CallResponse',
+    localField: '_id',
+    foreignField: 'leadId',
 });
 
 const Lead = mongoose.model('Lead', leadSchema);

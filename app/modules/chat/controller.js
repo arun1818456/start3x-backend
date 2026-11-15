@@ -8,10 +8,10 @@ import { getIO } from "../../socket/socket_io.js";
 export const sendChatMessage = async (req, res) => {
     try {
         console.log("📥 Send Chat Message Request:", req.body);
-        let { passkey, senderName, messageText, messageType, leadId, leadRank } = req.body || {};
+        let { passkey, senderName, messageText, messageType, leadId, leadRank, leadIds } = req.body || {};
 
-        if (!messageText || messageText.trim() === '') {
-            return sendResponse(res, 400, false, "Message text is required");
+        if ((!messageText || messageText.trim() === '') && !leadId && !leadRank && (!leadIds || leadIds.length === 0)) {
+            return sendResponse(res, 400, false, "Message text or lead is required");
         }
 
         passkey = passkey || req.user?.passkey || 'default';
@@ -24,48 +24,59 @@ export const sendChatMessage = async (req, res) => {
             senderName = senderName || req.user?.name || 'User';
         }
 
-        let flaggedLeadDoc = null;
+        let flaggedLeadDocs = [];
 
-        // If leadId is provided directly
-        if (leadId) {
+        // 1. If leadIds array is provided
+        if (Array.isArray(leadIds) && leadIds.length > 0) {
             try {
-                flaggedLeadDoc = await Lead.findById(leadId);
+                flaggedLeadDocs = await Lead.find({ _id: { $in: leadIds } });
+            } catch (e) {
+                console.error("Error looking up leads by IDs:", e);
+            }
+        }
+
+        // 2. If single leadId is provided directly
+        if (flaggedLeadDocs.length === 0 && leadId) {
+            try {
+                const singleLead = await Lead.findById(leadId);
+                if (singleLead) flaggedLeadDocs.push(singleLead);
             } catch (e) {
                 console.error("Error looking up lead by ID:", e);
             }
         }
 
-        // If leadRank or lead number (e.g. "#1" or "1") is provided
-        if (!flaggedLeadDoc && leadRank) {
+        // 3. If leadRank or lead number (e.g. "#1" or "1") is provided
+        if (flaggedLeadDocs.length === 0 && leadRank) {
             try {
                 const formattedRank = leadRank.startsWith('#') ? leadRank : `#${leadRank}`;
-                flaggedLeadDoc = await Lead.findOne({ passkey, rank: formattedRank });
-                if (!flaggedLeadDoc) {
-                    flaggedLeadDoc = await Lead.findOne({ rank: formattedRank });
+                let singleLead = await Lead.findOne({ passkey, rank: formattedRank });
+                if (!singleLead) {
+                    singleLead = await Lead.findOne({ rank: formattedRank });
                 }
+                if (singleLead) flaggedLeadDocs.push(singleLead);
             } catch (e) {
                 console.error("Error looking up lead by rank:", e);
             }
         }
 
-        const type = flaggedLeadDoc ? 'flagged_lead' : (messageType || 'text');
+        const type = flaggedLeadDocs.length > 0 ? 'flagged_lead' : (messageType || 'text');
         const senderId = req.user?._id || req.user?.id || req.body?.senderId || '';
 
         const newChatMessage = await Chat.create({
             passkey,
             senderId,
             senderName,
-            messageText,
+            messageText: messageText || (flaggedLeadDocs.length > 0 ? `${flaggedLeadDocs.length} Lead(s) Flagged` : ''),
             messageType: type,
-            flaggedLead: flaggedLeadDoc ? flaggedLeadDoc._id : null,
+            flaggedLeads: flaggedLeadDocs.map(l => l._id),
         });
 
-        // Populate flaggedLead before returning
-        const populatedMessage = await Chat.findById(newChatMessage._id).populate({
-            path: 'flaggedLead',
-            populate: { path: 'responses', options: { sort: { createdAt: -1 } } },
-            strictPopulate: false,
-        });
+        // Populate flaggedLeads before returning
+        const populatedMessage = await Chat.findById(newChatMessage._id)
+            .populate({
+                path: 'flaggedLeads',
+                strictPopulate: false,
+            });
 
         // Broadcast to socket room in real-time
         try {
@@ -96,8 +107,7 @@ export const getChatMessages = async (req, res) => {
 
         const messages = await Chat.find(filter)
             .populate({
-                path: 'flaggedLead',
-                populate: { path: 'responses', options: { sort: { createdAt: -1 } } },
+                path: 'flaggedLeads',
                 strictPopulate: false,
             })
             .sort({ createdAt: 1 });

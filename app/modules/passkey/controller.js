@@ -101,20 +101,28 @@ export const togglePasskeyStatus = async (req, res) => {
 // ✅ SAVE / UPDATE CLIENT INFO IN PASSKEY MODEL ONLY & SET isSetupComplete = true FOR ALL USERS ON THIS PASSKEY
 export const updateClientInfo = async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id;
-    console.log("📥 Update Client Info request received for user:", userId, req.body || {});
+    const userId = req.user?._id || req.user?.id;
+    console.log("📥 Update Client Info request received for user:", userId, req.body || {}, req.query || {});
 
-    // 1. Find User to get their assigned passkey
-    const userDoc = await User.findById(userId);
-    if (!userDoc || !userDoc.passkey) {
-      return sendResponse(res, 400, false, "User passkey not found");
+    // 1. Resolve target passkey: from body/query (sent by Admin or Client), or from userDoc
+    let targetPasskey = req.body?.passkey || req.query?.passkey || req.body?.passkeyId || req.query?.passkeyId || req.body?.id;
+
+    if (!targetPasskey && userId) {
+      const userDoc = await User.findById(userId);
+      if (userDoc && userDoc.passkey) {
+        targetPasskey = userDoc.passkey;
+      }
     }
 
-    const userPasskeyStr = userDoc.passkey;
+    if (!targetPasskey) {
+      return sendResponse(res, 400, false, "Target passkey is required");
+    }
+
+    const passkeyStr = targetPasskey.toString().trim();
 
     // 2. Find Passkey document in Passkey collection
     const passkeyDoc = await Passkey.findOne({
-      $or: [{ _id: userPasskeyStr }, { passkey: userPasskeyStr }]
+      $or: [{ _id: passkeyStr }, { passkey: passkeyStr }]
     });
 
     if (!passkeyDoc) {
@@ -137,6 +145,8 @@ export const updateClientInfo = async (req, res) => {
       hybrid5kW,
       inverterSpec,
       batterySpec,
+      inverterName,
+      batteryName,
     } = req.body || {};
 
     const updatedClientInfo = {
@@ -153,19 +163,21 @@ export const updateClientInfo = async (req, res) => {
       hybrid3kW: hybrid3kW || '',
       hybrid4kW: hybrid4kW || '',
       hybrid5kW: hybrid5kW || '',
-      inverterSpec: inverterSpec || '',
-      batterySpec: batterySpec || '',
+      inverterSpec: inverterSpec || inverterName || '',
+      batterySpec: batterySpec || batteryName || '',
+      inverterName: inverterName || inverterSpec || '',
+      batteryName: batteryName || batterySpec || '',
       isSetupComplete: true,
     };
 
-    // Save full clientInfo in PASSKEY document ONLY!
+    // Save full clientInfo in PASSKEY document
     passkeyDoc.clientInfo = updatedClientInfo;
     if (companyName) passkeyDoc.name = companyName;
     await passkeyDoc.save();
 
-    // In USER document, ONLY set isSetupComplete = true! (Do NOT overwrite User's registered name)
+    // In USER document, set isSetupComplete = true for all users with this passkey
     await User.updateMany(
-      { passkey: userPasskeyStr },
+      { passkey: passkeyStr },
       {
         $set: {
           isSetupComplete: true,
@@ -173,14 +185,64 @@ export const updateClientInfo = async (req, res) => {
       }
     );
 
-    console.log(`✅ Saved full clientInfo in PASSKEY model ONLY. Updated isSetupComplete = true for users.`);
+    console.log(`✅ Saved full clientInfo in PASSKEY model for [${passkeyStr}]. Updated isSetupComplete = true for users.`);
 
-    const updatedCurrentUser = await User.findById(userId).select('-password');
-    const userObj = updatedCurrentUser.toObject();
-
-    return sendResponse(res, 200, true, "Client details saved in Passkey model successfully", userObj);
+    return sendResponse(res, 200, true, "Client details saved in Passkey model successfully", {
+      passkey: passkeyDoc.passkey || passkeyDoc._id,
+      name: passkeyDoc.name,
+      clientInfo: passkeyDoc.clientInfo,
+      passkeyDoc: passkeyDoc.toObject(),
+    });
   } catch (error) {
     console.error("Update Client Info Error:", error);
     return sendResponse(res, 500, false, "Error updating client info", null, error.message);
+  }
+};
+
+// ✅ GET PASSKEY DETAILS (INCLUDING CLIENT INFO)
+export const getPasskeyDetails = async (req, res) => {
+  try {
+    let targetPasskey = req.params?.passkey || req.query?.passkey;
+    if (!targetPasskey && req.user && req.user.passkey) {
+      targetPasskey = req.user.passkey;
+    }
+
+    if (!targetPasskey) {
+      return sendResponse(res, 400, false, "Passkey parameter is required");
+    }
+
+    const passkeyStr = targetPasskey.toString().trim();
+    const passkeyDoc = await Passkey.findOne({
+      $or: [{ _id: passkeyStr }, { passkey: passkeyStr }]
+    });
+
+    if (!passkeyDoc) {
+      return sendResponse(res, 404, false, "Passkey not found");
+    }
+
+    return sendResponse(res, 200, true, "Passkey details fetched successfully", passkeyDoc.toObject());
+  } catch (error) {
+    console.error("Get Passkey Details Error:", error);
+    return sendResponse(res, 500, false, "Error fetching passkey details", null, error.message);
+  }
+};
+
+// ✅ GET ALL USERS LOGGED IN WITH SPECIFIC PASSKEY
+export const getPasskeyUsers = async (req, res) => {
+  try {
+    const { passkey } = req.params;
+    if (!passkey) {
+      return sendResponse(res, 400, false, "Passkey parameter is required");
+    }
+
+    // Find all users who registered or logged in with this passkey
+    const users = await User.find({ passkey })
+      .select('-password')
+      .sort({ createdAt: -1 });
+
+    return sendResponse(res, 200, true, "Passkey users fetched successfully", users);
+  } catch (error) {
+    console.error("Get Passkey Users Error:", error);
+    return sendResponse(res, 500, false, "Error fetching passkey users", null, error.message);
   }
 };

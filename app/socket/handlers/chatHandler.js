@@ -20,10 +20,10 @@ export const handleJoinChat = async (io, socket, data) => {
 export const handleSendMessage = async (io, socket, data) => {
     try {
         console.log("💬 Socket send_message received:", data);
-        let { passkey, senderId, senderName, messageText, messageType, leadId, leadRank, role } = data || {};
+        let { passkey, senderId, senderName, messageText, messageType, leadId, leadRank, leadIds, role } = data || {};
 
-        if (!messageText || messageText.trim() === '') {
-            socket.emit("chat_error", { message: "Message text is required" });
+        if ((!messageText || messageText.trim() === '') && !leadId && !leadRank && (!leadIds || leadIds.length === 0)) {
+            socket.emit("chat_error", { message: "Message text or lead is required" });
             return;
         }
 
@@ -37,42 +37,53 @@ export const handleSendMessage = async (io, socket, data) => {
             senderName = senderName || socket.userName || 'User';
         }
 
-        let flaggedLeadDoc = null;
-        if (leadId) {
+        let flaggedLeadDocs = [];
+        if (Array.isArray(leadIds) && leadIds.length > 0) {
             try {
-                flaggedLeadDoc = await Lead.findById(leadId);
+                flaggedLeadDocs = await Lead.find({ _id: { $in: leadIds } });
+            } catch (e) {
+                console.error("Error looking up leads by IDs:", e);
+            }
+        }
+
+        if (flaggedLeadDocs.length === 0 && leadId) {
+            try {
+                const singleLead = await Lead.findById(leadId);
+                if (singleLead) flaggedLeadDocs.push(singleLead);
             } catch (e) {
                 console.error("Error looking up lead by ID:", e);
             }
         }
 
-        if (!flaggedLeadDoc && leadRank) {
+        if (flaggedLeadDocs.length === 0 && leadRank) {
             try {
                 const formattedRank = leadRank.startsWith('#') ? leadRank : `#${leadRank}`;
-                flaggedLeadDoc = await Lead.findOne({ passkey, rank: formattedRank });
-                if (!flaggedLeadDoc) {
-                    flaggedLeadDoc = await Lead.findOne({ rank: formattedRank });
+                let singleLead = await Lead.findOne({ passkey, rank: formattedRank });
+                if (!singleLead) {
+                    singleLead = await Lead.findOne({ rank: formattedRank });
                 }
+                if (singleLead) flaggedLeadDocs.push(singleLead);
             } catch (e) {
                 console.error("Error looking up lead by rank:", e);
             }
         }
 
-        const type = flaggedLeadDoc ? 'flagged_lead' : (messageType || 'text');
+        const type = flaggedLeadDocs.length > 0 ? 'flagged_lead' : (messageType || 'text');
 
         const newChatMessage = await Chat.create({
             passkey,
             senderId,
             senderName,
             messageType: type,
-            messageText,
-            flaggedLead: flaggedLeadDoc ? flaggedLeadDoc._id : null,
+            messageText: messageText || (flaggedLeadDocs.length > 0 ? `${flaggedLeadDocs.length} Lead(s) Flagged` : ''),
+            flaggedLeads: flaggedLeadDocs.map(l => l._id),
         });
 
-        const populatedMessage = await Chat.findById(newChatMessage._id).populate({
-            path: 'flaggedLead',
-            strictPopulate: false,
-        });
+        const populatedMessage = await Chat.findById(newChatMessage._id)
+            .populate({
+                path: 'flaggedLeads',
+                strictPopulate: false,
+            });
 
         // Broadcast to everyone in the passkey room (including sender)
         io.to(passkey).emit("receive_message", populatedMessage);

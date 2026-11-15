@@ -132,3 +132,125 @@ export const getAllClientsInfo = async (req, res) => {
     return sendResponse(res, 500, false, "Error fetching clients info", null, error.message);
   }
 };
+
+// ✅ GOOGLE LOGIN / SIGNUP USER
+export const googleLoginUser = async (req, res) => {
+  console.log("📥 Google login request received:", req.body || {});
+
+  try {
+    let { email, name, profileUrl, passkey } = req.body || {};
+
+    if (!email || !name) {
+      return sendResponse(res, 400, false, "Email and name are required");
+    }
+
+    email = email.trim().toLowerCase();
+    passkey = passkey ? passkey.trim() : '';
+
+    // 🔎 Check if user exists in Database
+    let user = await User.findOne({ email });
+
+    // 1️⃣ EXISTING USER WITH PASSKEY OR ADMIN -> DIRECT LOGIN
+    if (user && (user.role === 'admin' || (user.passkey && user.passkey.trim().length > 0))) {
+      // Sync latest isSetupComplete from Passkey if available
+      if (user.passkey) {
+        const passkeyDoc = await Passkey.findOne({
+          $or: [{ _id: user.passkey }, { passkey: user.passkey }]
+        });
+        if (passkeyDoc && passkeyDoc.clientInfo && passkeyDoc.clientInfo.isSetupComplete) {
+          user.isSetupComplete = true;
+        }
+      }
+
+      if (profileUrl && !user.profileUrl) {
+        user.profileUrl = profileUrl;
+      }
+      await user.save();
+
+      const token = jwtTokenGenerator(user._id);
+      const userObj = user.toObject();
+      delete userObj.password;
+
+      const userData = {
+        ...userObj,
+        token: token,
+      };
+
+      console.log("✅ Google Direct Login Success:", userData);
+      return sendResponse(res, 200, true, "Google login successful", {
+        requiresPasskey: false,
+        ...userData,
+      });
+    }
+
+    // 2️⃣ NEW USER OR USER WITHOUT PASSKEY -> REQUIRES PASSKEY
+    if (!passkey) {
+      console.log("⚠️ Passkey required for new user or account without passkey:", email);
+      return sendResponse(res, 200, true, "Passkey required", {
+        requiresPasskey: true,
+        email: email,
+        name: name,
+      });
+    }
+
+    // 3️⃣ VERIFY PASSKEY & COMPLETE SIGNUP
+    const validPasskeyDoc = await Passkey.findOne({
+      $or: [{ _id: passkey }, { passkey: passkey }]
+    });
+
+    if (!validPasskeyDoc) {
+      return sendResponse(res, 400, false, "Invalid Passkey. Please check with Admin");
+    }
+
+    if (validPasskeyDoc.isActive === false) {
+      return sendResponse(res, 400, false, "This passkey has been deactivated by Admin");
+    }
+
+    let isSetupComplete = false;
+    if (validPasskeyDoc.clientInfo && validPasskeyDoc.clientInfo.isSetupComplete) {
+      isSetupComplete = true;
+      console.log("🎯 Passkey setup is ALREADY complete! Setting isSetupComplete = true");
+    }
+
+    if (user) {
+      // User exists in DB but didn't have passkey -> update user
+      user.passkey = passkey;
+      user.isSetupComplete = isSetupComplete;
+      if (profileUrl) user.profileUrl = profileUrl;
+      await user.save();
+    } else {
+      // New User -> create account
+      const dummyPassword = await bcrypt.hash("google_oauth_dummy_passwordW$^%&R^&Y*U(", 10);
+      user = await User.create({
+        name: name.trim(),
+        email,
+        password: dummyPassword,
+        role: "user",
+        passkey: passkey,
+        profileUrl: profileUrl || '',
+        isSetupComplete: isSetupComplete,
+      });
+    }
+
+    // Generate fresh JWT Token
+    const token = jwtTokenGenerator(user._id);
+    const userObj = user.toObject();
+    delete userObj.password;
+
+    const userData = {
+      ...userObj,
+      token: token,
+    };
+
+    console.log("✅ Google Signup with Passkey Success:", userData);
+    return sendResponse(res, 200, true, "Google registration successful", {
+      requiresPasskey: false,
+      ...userData,
+    });
+
+  } catch (error) {
+    console.error("Google Login/Signup Error:", error);
+    return sendResponse(res, 500, false, "Error in Google login", null, error.message);
+  }
+};
+
