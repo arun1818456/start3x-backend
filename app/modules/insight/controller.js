@@ -61,7 +61,9 @@ export const getInsights = async (req, res) => {
             const outcome = (resp.outcome || '').toLowerCase();
 
             if (resp.isDone) {
-                if (outcome.includes('meeting')) {
+                if (outcome.includes('deal') || outcome.includes('conversion')) {
+                    taskDone++;
+                } else if (outcome.includes('meeting')) {
                     meetingsDone++;
                 } else if (outcome.includes('callback')) {
                     callbackDone++;
@@ -138,7 +140,7 @@ export const getInsightLeads = async (req, res) => {
             } else if (catLower === 'callback_missed') {
                 isMatch = resp.isMissed && outcome.includes('callback');
             } else if (catLower === 'task_done' || catLower === 'conversions') {
-                isMatch = resp.isDone && !outcome.includes('meeting') && !outcome.includes('callback');
+                isMatch = (resp.isDone && !outcome.includes('meeting') && !outcome.includes('callback')) || outcome.includes('deal') || outcome.includes('conversion');
             }
 
             if (isMatch) {

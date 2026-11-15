@@ -34,6 +34,7 @@ export const createLead = async (req, res) => {
             electricityBill: electricityBill || '',
         });
 
+        const callerName = req.body?.userName || req.body?.callerName || req.user?.name || (req.user?.role === 'admin' ? 'Admin' : 'System');
         try {
             await CallResponse.create({
                 passkey: newLead.passkey,
@@ -43,6 +44,8 @@ export const createLead = async (req, res) => {
                 scheduledDate: newLead.scheduledDate || null,
                 text: textNote  || '',
                 reminder: null,
+                userName: callerName,
+                callerName: callerName,
             });
         } catch (error) {
             try {

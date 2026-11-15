@@ -15,6 +15,9 @@ export const createResponse = async (req, res) => {
             reminder,
             isDone,
             isMissed,
+            userName,
+            callerName,
+            userId,
         } = req.body || {};
 
         if (!outcome) {
@@ -32,6 +35,8 @@ export const createResponse = async (req, res) => {
 
         passkey = leadDoc.passkey;
 
+        const resolvedCallerName = userName || callerName || req.user?.name || (req.user?.role === 'admin' ? 'Admin' : null);
+
         // Count existing responses for this lead / passkey
         const totalResponses = await CallResponse.countDocuments({
             passkey,
@@ -42,6 +47,9 @@ export const createResponse = async (req, res) => {
         const newResponse = await CallResponse.create({
             passkey,
             leadId: leadDoc._id,
+            userId: userId || req.user?._id || null,
+            userName: resolvedCallerName,
+            callerName: resolvedCallerName,
             responseNumber: `Response #${totalResponses + 1}`,
             outcome,
             scheduledDate: scheduledDate || null,
@@ -62,11 +70,17 @@ export const createResponse = async (req, res) => {
 // ✅ GET RESPONSES BY LEAD ID, PASSKEY, OR PHONE NUMBER
 export const getResponses = async (req, res) => {
     try {
-        const { passkey, leadId, phoneNumber, startDate, endDate } = req.query;
+        const { passkey, leadId, phoneNumber, startDate, endDate, userId, userName } = req.query;
 
         const filter = {};
         if (leadId) {
             filter.leadId = leadId;
+        }
+        if (userId) {
+            filter.userId = userId;
+        }
+        if (userName) {
+            filter.userName = userName;
         }
 
         if (!passkey && !phoneNumber && !leadId) {

@@ -12,6 +12,19 @@ const callResponseSchema = new mongoose.Schema({
         required: true,
         index: true,
     },
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+    },
+    userName: {
+        type: String,
+        default: null,
+    },
+    callerName: {
+        type: String,
+        default: null,
+    },
     responseNumber: {
         type: String,
         default: 'Response #1',
