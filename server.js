@@ -78,7 +78,7 @@ app.use("/api/insight", insightRoutes);
 // ============================================================
 
 // Simple API to check whether the server is working
-app.post("/", (req, res) => {
+app.post("/api/", (req, res) => {
   console.log("✅ API HIT");
 
   sendResponse(res, 200, true, "Server is working!", null);

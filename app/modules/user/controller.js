@@ -8,7 +8,7 @@ import { sendResponse } from "../../utils/sendResposeType.js";
 export const RegisterUser = async (req, res) => {
   try {
     console.log("📥 Register user request received:", req.body || {});
-    let { name, email, password, passkey } = req.body || {};
+    let { name, email, password, passkey, deviceToken } = req.body || {};
     const userName = (name || '').trim();
 
     email = email?.trim()?.toLowerCase();
@@ -55,6 +55,7 @@ export const RegisterUser = async (req, res) => {
       role: "user",
       passkey: passkey || '',
       isSetupComplete: isSetupComplete,
+      deviceToken: deviceToken ? deviceToken.trim() : '',
     });
 
     const token = jwtTokenGenerator(newUser._id);
@@ -76,7 +77,7 @@ export const RegisterUser = async (req, res) => {
 // ✅ LOGIN USER
 export const loginUser = async (req, res) => {
   try {
-    const { email, password} = req.body || {};
+    const { email, password, deviceToken } = req.body || {};
     console.log("📥 Login request received:", req.body || {});
     if (!email || !password) {
       return sendResponse(res, 400, false, "Email and password are required");
@@ -87,6 +88,12 @@ export const loginUser = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return sendResponse(res, 400, false, "Invalid email or password");
+
+    // Update device token if provided
+    if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim().length > 0) {
+      user.deviceToken = deviceToken.trim();
+      await user.save();
+    }
 
     // Generate fresh JWT Token
     const token = jwtTokenGenerator(user._id);
@@ -138,7 +145,7 @@ export const googleLoginUser = async (req, res) => {
   console.log("📥 Google login request received:", req.body || {});
 
   try {
-    let { email, name, profileUrl, passkey } = req.body || {};
+    let { email, name, profileUrl, passkey, deviceToken } = req.body || {};
 
     if (!email || !name) {
       return sendResponse(res, 400, false, "Email and name are required");
@@ -164,6 +171,9 @@ export const googleLoginUser = async (req, res) => {
 
       if (profileUrl && !user.profileUrl) {
         user.profileUrl = profileUrl;
+      }
+      if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim().length > 0) {
+        user.deviceToken = deviceToken.trim();
       }
       await user.save();
 
@@ -217,6 +227,9 @@ export const googleLoginUser = async (req, res) => {
       user.passkey = passkey;
       user.isSetupComplete = isSetupComplete;
       if (profileUrl) user.profileUrl = profileUrl;
+      if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim().length > 0) {
+        user.deviceToken = deviceToken.trim();
+      }
       await user.save();
     } else {
       // New User -> create account
@@ -228,6 +241,7 @@ export const googleLoginUser = async (req, res) => {
         role: "user",
         passkey: passkey,
         profileUrl: profileUrl || '',
+        deviceToken: deviceToken ? deviceToken.trim() : '',
         isSetupComplete: isSetupComplete,
       });
     }
@@ -251,6 +265,22 @@ export const googleLoginUser = async (req, res) => {
   } catch (error) {
     console.error("Google Login/Signup Error:", error);
     return sendResponse(res, 500, false, "Error in Google login", null, error.message);
+  }
+};
+
+// ✅ UPDATE DEVICE TOKEN
+export const updateDeviceToken = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { deviceToken } = req.body || {};
+    if (!deviceToken) {
+      return sendResponse(res, 400, false, "Device token is required");
+    }
+    await User.findByIdAndUpdate(userId, { deviceToken: deviceToken.trim() });
+    return sendResponse(res, 200, true, "Device token updated successfully");
+  } catch (error) {
+    console.error("Update Device Token Error:", error);
+    return sendResponse(res, 500, false, "Error updating device token", null, error.message);
   }
 };
 

@@ -1,8 +1,10 @@
 import Chat from "./model.js";
 import Lead from "../lead/model.js";
+import User from "../user/model.js";
 import "../response/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
 import { getIO } from "../../socket/socket_io.js";
+import { sendMultipleNotificationToUsers } from "../../utils/sendPush.js";
 
 // ✅ CREATE / SEND CHAT MESSAGE (WITH OPTIONAL FLAGGED LEAD)
 export const sendChatMessage = async (req, res) => {
@@ -87,6 +89,34 @@ export const sendChatMessage = async (req, res) => {
             }
         } catch (socketErr) {
             console.error("Socket emit error in sendChatMessage:", socketErr);
+        }
+
+        // 🔥 Send push notification to all other users with this passkey
+        try {
+            const users = await User.find({
+                passkey,
+                deviceToken: { $exists: true, $ne: "" },
+            });
+            const senderUserId = (senderId || req.user?._id || req.user?.id || '').toString();
+            const tokens = users
+                .filter(u => u._id.toString() !== senderUserId)
+                .map(u => u.deviceToken)
+                .filter(Boolean);
+
+            if (tokens.length > 0) {
+                const preview = messageText || (flaggedLeadDocs.length > 0 ? `Shared ${flaggedLeadDocs.length} lead(s)` : 'New message');
+                sendMultipleNotificationToUsers(
+                    tokens,
+                    `💬 ${senderName}`,
+                    preview,
+                    {
+                        type: "chat_message",
+                        passkey,
+                    }
+                );
+            }
+        } catch (pushErr) {
+            console.error("Push notification error in sendChatMessage:", pushErr.message);
         }
 
         return sendResponse(res, 200, true, "Message posted successfully", populatedMessage);

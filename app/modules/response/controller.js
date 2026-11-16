@@ -1,6 +1,8 @@
 import CallResponse from "./model.js";
 import Lead from "../lead/model.js";
+import User from "../user/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
+import { sendMultipleNotificationToUsers } from "../../utils/sendPush.js";
 
 // ✅ CREATE CALL RESPONSE (STORES IN RESPONSES COLLECTION & LINKS TO LEAD BY LEAD ID)
 export const createResponse = async (req, res) => {
@@ -59,6 +61,38 @@ export const createResponse = async (req, res) => {
             isMissed: isMissed || false,
         });
        updateLeadStatus(leadDoc._id); // Update lead status based on the latest response
+
+        // 🔥 Send push notification to team members with same passkey
+        try {
+            const users = await User.find({
+                passkey: newResponse.passkey,
+                deviceToken: { $exists: true, $ne: "" },
+            });
+            const currentUserId = (userId || req.user?._id || '').toString();
+            const tokens = users
+                .filter(u => u._id.toString() !== currentUserId)
+                .map(u => u.deviceToken)
+                .filter(Boolean);
+
+            if (tokens.length > 0) {
+                const title = outcome === 'Got a meeting'
+                    ? "📅 Meeting Scheduled!"
+                    : `📞 Lead Update: ${outcome}`;
+                const body = `${resolvedCallerName || 'Team member'} updated lead "${leadDoc.name}" (${outcome}).`;
+                sendMultipleNotificationToUsers(
+                    tokens,
+                    title,
+                    body,
+                    {
+                        type: "response_added",
+                        leadId: leadDoc._id.toString(),
+                        passkey: newResponse.passkey,
+                    }
+                );
+            }
+        } catch (pushErr) {
+            console.error("Push notification error in createResponse:", pushErr.message);
+        }
 
         return sendResponse(res, 200, true, "Call response added successfully", newResponse);
     } catch (error) {

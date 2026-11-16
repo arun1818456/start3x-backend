@@ -1,6 +1,8 @@
 import Lead from "./model.js";
 import CallResponse from "../response/model.js";
+import User from "../user/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
+import { sendMultipleNotificationToUsers } from "../../utils/sendPush.js";
 
 // ✅ CREATE LEAD / ASSIGN LEAD TO PASSKEY
 export const createLead = async (req, res) => {
@@ -54,6 +56,29 @@ export const createLead = async (req, res) => {
                 console.error("Create Lead Rollback Error:", cleanupError);
             }
             throw error;
+        }
+
+        // 🔥 Send push notification to all users belonging to this passkey
+        try {
+            const users = await User.find({
+                passkey: newLead.passkey,
+                deviceToken: { $exists: true, $ne: "" },
+            });
+            const tokens = users.map((u) => u.deviceToken).filter(Boolean);
+            if (tokens.length > 0) {
+                sendMultipleNotificationToUsers(
+                    tokens,
+                    "🎯 New Lead Assigned!",
+                    `Lead "${newLead.name}" has been assigned to your team.`,
+                    {
+                        type: "lead_assigned",
+                        leadId: newLead._id.toString(),
+                        passkey: newLead.passkey,
+                    }
+                );
+            }
+        } catch (pushErr) {
+            console.error("Push notification error in createLead:", pushErr.message);
         }
 
         return sendResponse(res, 200, true, "Lead assigned successfully", newLead);
