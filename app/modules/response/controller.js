@@ -1,8 +1,7 @@
 import CallResponse from "./model.js";
 import Lead from "../lead/model.js";
-import User from "../user/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
-import { sendMultipleNotificationToUsers } from "../../utils/sendPush.js";
+import { notifyPasskeyUsersAndAdmins } from "../../utils/sendPush.js";
 
 // ✅ CREATE CALL RESPONSE (STORES IN RESPONSES COLLECTION & LINKS TO LEAD BY LEAD ID)
 export const createResponse = async (req, res) => {
@@ -62,34 +61,46 @@ export const createResponse = async (req, res) => {
         });
        updateLeadStatus(leadDoc._id); // Update lead status based on the latest response
 
-        // 🔥 Send push notification to team members with same passkey
+        // 🔥 Send push notification to team members with same passkey AND admins
         try {
-            const users = await User.find({
-                passkey: newResponse.passkey,
-                deviceToken: { $exists: true, $ne: "" },
-            });
             const currentUserId = (userId || req.user?._id || '').toString();
-            const tokens = users
-                .filter(u => u._id.toString() !== currentUserId)
-                .map(u => u.deviceToken)
-                .filter(Boolean);
+            const actor = resolvedCallerName || 'Team member';
+            const outcomeLower = outcome.toLowerCase();
 
-            if (tokens.length > 0) {
-                const title = outcome === 'Got a meeting'
-                    ? "📅 Meeting Scheduled!"
-                    : `📞 Lead Update: ${outcome}`;
-                const body = `${resolvedCallerName || 'Team member'} updated lead "${leadDoc.name}" (${outcome}).`;
-                sendMultipleNotificationToUsers(
-                    tokens,
-                    title,
-                    body,
-                    {
-                        type: "response_added",
-                        leadId: leadDoc._id.toString(),
-                        passkey: newResponse.passkey,
-                    }
-                );
+            let title = `📞 Lead Update: ${outcome}`;
+            let body = `${actor} updated lead "${leadDoc.name}" (${outcome}).`;
+            let notifType = "response_added";
+
+            if (outcomeLower.includes('deal') || outcomeLower.includes('conversion')) {
+                title = "🎉 Deal Closed!";
+                body = `${actor} closed a deal with "${leadDoc.name}"!`;
+                notifType = "deal_closed";
+            } else if (isMissed === true) {
+                title = "⚠️ Task Missed";
+                body = `${actor} marked "${leadDoc.name}" as missed.`;
+                notifType = "task_missed";
+            } else if (outcome === 'Got a meeting') {
+                title = "📅 Meeting Scheduled!";
+                body = `${actor} scheduled a meeting with "${leadDoc.name}"${scheduledDate ? ` (${scheduledDate})` : ''}.`;
+            } else if (outcome === 'Got a callback') {
+                title = "📞 Callback Scheduled";
+                body = `${actor} scheduled a callback for "${leadDoc.name}"${scheduledDate ? ` (${scheduledDate})` : ''}.`;
             }
+
+            notifyPasskeyUsersAndAdmins({
+                passkey: newResponse.passkey,
+                includePasskeyUsers: true,
+                includeAdmins: true,
+                excludeUserId: currentUserId,
+                title,
+                body,
+                type: notifType,
+                data: {
+                    type: notifType,
+                    leadId: leadDoc._id.toString(),
+                    passkey: newResponse.passkey,
+                },
+            });
         } catch (pushErr) {
             console.error("Push notification error in createResponse:", pushErr.message);
         }

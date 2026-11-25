@@ -1,6 +1,7 @@
 import Passkey from "./model.js";
 import User from "../user/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
+import { notifyPasskeyUsersAndAdmins } from "../../utils/sendPush.js";
 
 // Helper function to generate random 12-char passkey string
 const generateRandomKey = () => {
@@ -84,6 +85,24 @@ export const togglePasskeyStatus = async (req, res) => {
         await passkeyDoc.save();
 
         console.log(`✅ Toggled Passkey ${id} Status -> isActive: ${passkeyDoc.isActive}`);
+
+        const targetKey = passkeyDoc.passkey || passkeyDoc._id;
+        notifyPasskeyUsersAndAdmins({
+            passkey: targetKey,
+            includePasskeyUsers: true,
+            includeAdmins: false,
+            excludeUserId: req.user?._id || "",
+            title: passkeyDoc.isActive ? "✅ Account Activated" : "🔒 Account Deactivated",
+            body: passkeyDoc.isActive
+                ? "Your Start3x passkey has been activated by Admin."
+                : "Your Start3x passkey has been deactivated by Admin.",
+            type: "passkey_status",
+            data: {
+                type: "passkey_status",
+                passkey: targetKey,
+                isActive: String(passkeyDoc.isActive),
+            },
+        });
 
         return sendResponse(
             res,
@@ -170,6 +189,8 @@ export const updateClientInfo = async (req, res) => {
       isSetupComplete: true,
     };
 
+    const wasSetupComplete = passkeyDoc.clientInfo?.isSetupComplete === true;
+
     // Save full clientInfo in PASSKEY document
     passkeyDoc.clientInfo = updatedClientInfo;
     if (companyName) passkeyDoc.name = companyName;
@@ -186,6 +207,37 @@ export const updateClientInfo = async (req, res) => {
     );
 
     console.log(`✅ Saved full clientInfo in PASSKEY model for [${passkeyStr}]. Updated isSetupComplete = true for users.`);
+
+    const displayCompany = companyName || passkeyDoc.name || passkeyStr;
+    if (!wasSetupComplete) {
+      notifyPasskeyUsersAndAdmins({
+        passkey: passkeyStr,
+        includePasskeyUsers: false,
+        includeAdmins: true,
+        excludeUserId: userId || "",
+        title: "✅ Client Setup Completed",
+        body: `${displayCompany} completed setup (${passkeyStr}) and is ready for leads.`,
+        type: "client_setup_completed",
+        data: {
+          type: "client_setup_completed",
+          passkey: passkeyStr,
+        },
+      });
+    } else {
+      notifyPasskeyUsersAndAdmins({
+        passkey: passkeyStr,
+        includePasskeyUsers: true,
+        includeAdmins: true,
+        excludeUserId: userId || "",
+        title: "🏢 Business Details Updated",
+        body: `Business & pricing details were updated for ${displayCompany}.`,
+        type: "client_info_updated",
+        data: {
+          type: "client_info_updated",
+          passkey: passkeyStr,
+        },
+      });
+    }
 
     return sendResponse(res, 200, true, "Client details saved in Passkey model successfully", {
       passkey: passkeyDoc.passkey || passkeyDoc._id,

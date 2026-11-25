@@ -1,4 +1,5 @@
 import express from 'express';
+import { optionalAuth } from '../../middleWare/authWare.js';
 import {
     sendChatMessage,
     getChatMessages,
@@ -7,8 +8,8 @@ import {
 
 const router = express.Router();
 
-router.post('/send', sendChatMessage);
-router.get('/get', getChatMessages);
-router.delete('/delete/:id', deleteChatMessage);
+router.post('/send', optionalAuth, sendChatMessage);
+router.get('/get', optionalAuth, getChatMessages);
+router.delete('/delete/:id', optionalAuth, deleteChatMessage);
 
 export default router;

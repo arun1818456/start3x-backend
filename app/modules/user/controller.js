@@ -1,8 +1,39 @@
+import crypto from "node:crypto";
 import User from "./model.js";
 import Passkey from "../passkey/model.js";
 import bcrypt from "bcryptjs";
 import { jwtTokenGenerator } from "../../utils/generateJWTtoken.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
+import { notifyPasskeyUsersAndAdmins, sendPushNotification } from "../../utils/sendPush.js";
+import { getIO } from "../../socket/socket_io.js";
+
+const notifyPreviousDeviceLogout = (userId, oldDeviceToken, newDeviceToken, newSessionId) => {
+  try {
+    const io = getIO();
+    if (io && userId) {
+      io.to(`user_${userId}`).emit("session_expired", {
+        message: "Your account was logged in on another device. Please login again.",
+        newSessionId,
+      });
+    }
+  } catch (err) {
+    console.error("Socket session_expired emit error:", err.message);
+  }
+
+  try {
+    const cleanNew = (newDeviceToken || "").trim();
+    if (oldDeviceToken && oldDeviceToken.trim() && oldDeviceToken.trim() !== cleanNew) {
+      sendPushNotification(
+        oldDeviceToken.trim(),
+        "🔐 Session Expired",
+        "Your account was signed in on another device.",
+        { type: "session_expired" }
+      );
+    }
+  } catch (err) {
+    console.error("Push session_expired error:", err.message);
+  }
+};
 
 // ✅ REGISTER USER
 export const RegisterUser = async (req, res) => {
@@ -48,6 +79,7 @@ export const RegisterUser = async (req, res) => {
       console.log("🎯 Passkey setup is ALREADY complete! Setting isSetupComplete = true for new user");
     }
 
+    const sessionId = crypto.randomUUID();
     const newUser = await User.create({
       name: name || '',
       email,
@@ -56,9 +88,10 @@ export const RegisterUser = async (req, res) => {
       passkey: passkey || '',
       isSetupComplete: isSetupComplete,
       deviceToken: deviceToken ? deviceToken.trim() : '',
+      activeSessionId: sessionId,
     });
 
-    const token = jwtTokenGenerator(newUser._id);
+    const token = jwtTokenGenerator(newUser._id, sessionId);
     const userObj = newUser.toObject();
     delete userObj.password;
 
@@ -66,6 +99,22 @@ export const RegisterUser = async (req, res) => {
       ...userObj,
       token: token,
     };
+
+    if (passkey) {
+      notifyPasskeyUsersAndAdmins({
+        passkey,
+        includePasskeyUsers: true,
+        includeAdmins: true,
+        excludeUserId: newUser._id,
+        title: "👥 New Team Member Joined",
+        body: `${newUser.name} joined under passkey ${passkey}.`,
+        type: "team_member_joined",
+        data: {
+          type: "team_member_joined",
+          passkey,
+        },
+      });
+    }
 
     return sendResponse(res, 200, true, "User registered successfully", userData);
   } catch (error) {
@@ -89,14 +138,20 @@ export const loginUser = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return sendResponse(res, 400, false, "Invalid email or password");
 
+    const oldDeviceToken = user.deviceToken;
+    const sessionId = crypto.randomUUID();
+    user.activeSessionId = sessionId;
+
     // Update device token if provided
     if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim().length > 0) {
       user.deviceToken = deviceToken.trim();
-      await user.save();
     }
+    await user.save();
+
+    notifyPreviousDeviceLogout(user._id.toString(), oldDeviceToken, deviceToken, sessionId);
 
     // Generate fresh JWT Token
-    const token = jwtTokenGenerator(user._id);
+    const token = jwtTokenGenerator(user._id, sessionId);
     const userObj = user.toObject();
     delete userObj.password;
 
@@ -169,6 +224,10 @@ export const googleLoginUser = async (req, res) => {
         }
       }
 
+      const oldDeviceToken = user.deviceToken;
+      const sessionId = crypto.randomUUID();
+      user.activeSessionId = sessionId;
+
       if (profileUrl && !user.profileUrl) {
         user.profileUrl = profileUrl;
       }
@@ -177,7 +236,9 @@ export const googleLoginUser = async (req, res) => {
       }
       await user.save();
 
-      const token = jwtTokenGenerator(user._id);
+      notifyPreviousDeviceLogout(user._id.toString(), oldDeviceToken, deviceToken, sessionId);
+
+      const token = jwtTokenGenerator(user._id, sessionId);
       const userObj = user.toObject();
       delete userObj.password;
 
@@ -222,15 +283,21 @@ export const googleLoginUser = async (req, res) => {
       console.log("🎯 Passkey setup is ALREADY complete! Setting isSetupComplete = true");
     }
 
+    const sessionId = crypto.randomUUID();
+    let oldDeviceToken = "";
+
     if (user) {
+      oldDeviceToken = user.deviceToken;
       // User exists in DB but didn't have passkey -> update user
       user.passkey = passkey;
       user.isSetupComplete = isSetupComplete;
+      user.activeSessionId = sessionId;
       if (profileUrl) user.profileUrl = profileUrl;
       if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim().length > 0) {
         user.deviceToken = deviceToken.trim();
       }
       await user.save();
+      notifyPreviousDeviceLogout(user._id.toString(), oldDeviceToken, deviceToken, sessionId);
     } else {
       // New User -> create account
       const dummyPassword = await bcrypt.hash("google_oauth_dummy_passwordW$^%&R^&Y*U(", 10);
@@ -242,12 +309,13 @@ export const googleLoginUser = async (req, res) => {
         passkey: passkey,
         profileUrl: profileUrl || '',
         deviceToken: deviceToken ? deviceToken.trim() : '',
+        activeSessionId: sessionId,
         isSetupComplete: isSetupComplete,
       });
     }
 
     // Generate fresh JWT Token
-    const token = jwtTokenGenerator(user._id);
+    const token = jwtTokenGenerator(user._id, sessionId);
     const userObj = user.toObject();
     delete userObj.password;
 
@@ -257,6 +325,21 @@ export const googleLoginUser = async (req, res) => {
     };
 
     console.log("✅ Google Signup with Passkey Success:", userData);
+
+    notifyPasskeyUsersAndAdmins({
+      passkey,
+      includePasskeyUsers: true,
+      includeAdmins: true,
+      excludeUserId: user._id,
+      title: "👥 New Team Member Joined",
+      body: `${user.name} joined via Google under passkey ${passkey}.`,
+      type: "team_member_joined",
+      data: {
+        type: "team_member_joined",
+        passkey,
+      },
+    });
+
     return sendResponse(res, 200, true, "Google registration successful", {
       requiresPasskey: false,
       ...userData,
@@ -265,6 +348,18 @@ export const googleLoginUser = async (req, res) => {
   } catch (error) {
     console.error("Google Login/Signup Error:", error);
     return sendResponse(res, 500, false, "Error in Google login", null, error.message);
+  }
+};
+
+// ✅ LOGOUT USER (CLEAR DEVICE TOKEN & INVALIDATE SESSION)
+export const logoutUser = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    await User.findByIdAndUpdate(userId, { deviceToken: "", activeSessionId: "LOGGED_OUT" });
+    return sendResponse(res, 200, true, "Logout successful");
+  } catch (error) {
+    console.error("Logout Error:", error);
+    return sendResponse(res, 500, false, "Error logging out user", null, error.message);
   }
 };
 

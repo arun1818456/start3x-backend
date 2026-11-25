@@ -1,6 +1,9 @@
-import admin from "firebase-admin";
+import "dotenv/config";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 
 let isFirebaseInitialized = false;
+let messagingInstance = null;
 
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
@@ -8,11 +11,12 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     if (serviceAccount.private_key) {
       serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
     }
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+    if (getApps().length === 0) {
+      initializeApp({
+        credential: cert(serviceAccount),
       });
     }
+    messagingInstance = getMessaging();
     isFirebaseInitialized = true;
     console.log("🔥 Firebase Admin Initialized successfully");
   } catch (err) {
@@ -22,5 +26,5 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   console.warn("⚠️ FIREBASE_SERVICE_ACCOUNT is not defined in environment variables");
 }
 
-export { isFirebaseInitialized };
-export default admin;
+export { isFirebaseInitialized, messagingInstance };
+export default messagingInstance;

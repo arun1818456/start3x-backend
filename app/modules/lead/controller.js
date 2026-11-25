@@ -1,8 +1,7 @@
 import Lead from "./model.js";
 import CallResponse from "../response/model.js";
-import User from "../user/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
-import { sendMultipleNotificationToUsers } from "../../utils/sendPush.js";
+import { notifyPasskeyUsersAndAdmins } from "../../utils/sendPush.js";
 
 // ✅ CREATE LEAD / ASSIGN LEAD TO PASSKEY
 export const createLead = async (req, res) => {
@@ -59,27 +58,20 @@ export const createLead = async (req, res) => {
         }
 
         // 🔥 Send push notification to all users belonging to this passkey
-        try {
-            const users = await User.find({
+        notifyPasskeyUsersAndAdmins({
+            passkey: newLead.passkey,
+            includePasskeyUsers: true,
+            includeAdmins: false,
+            excludeUserId: req.user?._id || "",
+            title: "🎯 New Lead Assigned!",
+            body: `Lead "${newLead.name}" has been assigned to your team.`,
+            type: "lead_assigned",
+            data: {
+                type: "lead_assigned",
+                leadId: newLead._id.toString(),
                 passkey: newLead.passkey,
-                deviceToken: { $exists: true, $ne: "" },
-            });
-            const tokens = users.map((u) => u.deviceToken).filter(Boolean);
-            if (tokens.length > 0) {
-                sendMultipleNotificationToUsers(
-                    tokens,
-                    "🎯 New Lead Assigned!",
-                    `Lead "${newLead.name}" has been assigned to your team.`,
-                    {
-                        type: "lead_assigned",
-                        leadId: newLead._id.toString(),
-                        passkey: newLead.passkey,
-                    }
-                );
-            }
-        } catch (pushErr) {
-            console.error("Push notification error in createLead:", pushErr.message);
-        }
+            },
+        });
 
         return sendResponse(res, 200, true, "Lead assigned successfully", newLead);
     } catch (error) {
@@ -112,12 +104,21 @@ export const getLeads = async (req, res) => {
 export const updateLead = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, name, location, company, phoneNumber, altPhoneNumber, kw, electricityBill, textNote, scheduledDate } = req.body || {};
+        const { status, name, location, company, phoneNumber, altPhoneNumber, kw, electricityBill, textNote, scheduledDate, isCompleted } = req.body || {};
 
         const lead = await Lead.findById(id);
         if (!lead) {
             return sendResponse(res, 404, false, "Lead not found");
         }
+
+        const hasDetailsChange =
+            name !== undefined ||
+            location !== undefined ||
+            phoneNumber !== undefined ||
+            altPhoneNumber !== undefined ||
+            kw !== undefined ||
+            electricityBill !== undefined ||
+            scheduledDate !== undefined;
 
         if (status !== undefined) lead.status = status;
         if (name !== undefined) lead.name = name;
@@ -129,6 +130,7 @@ export const updateLead = async (req, res) => {
         if (electricityBill !== undefined) lead.electricityBill = electricityBill;
         if (textNote !== undefined) lead.textNote = textNote;
         if (scheduledDate !== undefined) lead.scheduledDate = scheduledDate;
+        if (isCompleted !== undefined) lead.isCompleted = isCompleted;
         await lead.save();
         try {
             await lead.populate({ path: 'responses', options: { sort: { createdAt: -1 } } });
@@ -136,10 +138,57 @@ export const updateLead = async (req, res) => {
             console.warn("Could not populate responses in updateLead:", e.message);
         }
 
+        // 🔥 Notify team + admins when lead details are updated (avoid duplicate push during Deal Closed status-only sync)
+        if (hasDetailsChange) {
+            notifyPasskeyUsersAndAdmins({
+                passkey: lead.passkey,
+                includePasskeyUsers: true,
+                includeAdmins: true,
+                excludeUserId: req.user?._id || "",
+                title: "✏️ Lead Details Updated",
+                body: `Details updated for lead "${lead.name}".`,
+                type: "lead_updated",
+                data: {
+                    type: "lead_updated",
+                    leadId: lead._id.toString(),
+                    passkey: lead.passkey,
+                },
+            });
+        }
+
         return sendResponse(res, 200, true, "Lead updated successfully", lead);
     } catch (error) {
         console.error("Update Lead Error:", error);
         return sendResponse(res, 500, false, "Error updating lead", null, error.message);
+    }
+};
+
+// ✅ WEB ENQUIRY NOTIFICATION (FREE CALL / SCALE PLAN / PARTNER FORM)
+export const notifyWebEnquiry = async (req, res) => {
+    try {
+        const { source, business, name, phone, planAmount } = req.body || {};
+        const label = source || "Website Enquiry";
+        const bodyText = planAmount
+            ? `${name || "Someone"} (${business || "Business"}) selected ${planAmount} plan • ${phone || ""}`
+            : `${name || "Someone"} (${business || "Business"}) submitted ${label} • ${phone || ""}`;
+
+        await notifyPasskeyUsersAndAdmins({
+            passkey: "",
+            includePasskeyUsers: false,
+            includeAdmins: true,
+            title: `🌐 New ${label}`,
+            body: bodyText.trim(),
+            type: "web_enquiry",
+            data: {
+                type: "web_enquiry",
+                source: label,
+            },
+        });
+
+        return sendResponse(res, 200, true, "Admin notified successfully");
+    } catch (error) {
+        console.error("Web Enquiry Notification Error:", error);
+        return sendResponse(res, 500, false, "Error notifying admin", null, error.message);
     }
 };
 

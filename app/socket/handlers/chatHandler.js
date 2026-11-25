@@ -1,11 +1,27 @@
 import Chat from "../../modules/chat/model.js";
 import Lead from "../../modules/lead/model.js";
+import { notifyPasskeyUsersAndAdmins } from "../../utils/sendPush.js";
+import { validateSocketSession } from "../socket_io.js";
 
 export const handleJoinChat = async (io, socket, data) => {
     try {
-        const { passkey, userId, userName, role } = data || {};
+        const { passkey, userId, userName, role, token } = data || {};
+        if (token) {
+            const check = await validateSocketSession(token);
+            if (!check.valid) {
+                socket.emit("session_expired", {
+                    message: "Your account was logged in on another device. Please login again.",
+                });
+                return;
+            }
+            if (check.sessionId) socket.sessionId = check.sessionId;
+        }
+
         const room = passkey || 'default';
         socket.join(room);
+        if (userId) {
+            socket.join(`user_${userId}`);
+        }
         socket.passkey = room;
         socket.userId = userId;
         socket.userName = userName;
@@ -20,7 +36,16 @@ export const handleJoinChat = async (io, socket, data) => {
 export const handleSendMessage = async (io, socket, data) => {
     try {
         console.log("💬 Socket send_message received:", data);
-        let { passkey, senderId, senderName, messageText, messageType, leadId, leadRank, leadIds, role } = data || {};
+        let { passkey, senderId, senderName, messageText, messageType, leadId, leadRank, leadIds, role, token } = data || {};
+        if (token) {
+            const check = await validateSocketSession(token);
+            if (!check.valid) {
+                socket.emit("session_expired", {
+                    message: "Your account was logged in on another device. Please login again.",
+                });
+                return;
+            }
+        }
 
         if ((!messageText || messageText.trim() === '') && !leadId && !leadRank && (!leadIds || leadIds.length === 0)) {
             socket.emit("chat_error", { message: "Message text or lead is required" });
@@ -88,6 +113,28 @@ export const handleSendMessage = async (io, socket, data) => {
         // Broadcast to everyone in the passkey room (including sender)
         io.to(passkey).emit("receive_message", populatedMessage);
         console.log(`💬 Message broadcasted from [${senderName}] to room [${passkey}]:`, populatedMessage._id);
+
+        // 🔥 Send push notification to all other users with this passkey AND admins
+        try {
+            const preview = messageText || (flaggedLeadDocs.length > 0 ? `Shared ${flaggedLeadDocs.length} lead(s)` : 'New message');
+            notifyPasskeyUsersAndAdmins({
+                passkey,
+                includePasskeyUsers: true,
+                includeAdmins: true,
+                excludeUserId: senderId,
+                title: `💬 ${senderName}`,
+                body: preview,
+                type: "chat_message",
+                data: {
+                    type: "chat_message",
+                    passkey,
+                    messageType: type,
+                    ...(flaggedLeadDocs.length > 0 ? { leadId: flaggedLeadDocs[0]._id.toString() } : {}),
+                },
+            });
+        } catch (pushErr) {
+            console.error("Push notification error in handleSendMessage:", pushErr.message);
+        }
     } catch (error) {
         console.error("handleSendMessage error:", error);
         socket.emit("chat_error", { message: error.message });
