@@ -56,6 +56,8 @@ export const sendPushNotification = async (fcmToken, title, body, data = {}) => 
       notification: {
         sound: "default",
         channelId: "alert_channel",
+        icon: "ic_notification",
+        color: "#F26702",
       },
     },
     apns: {
@@ -122,6 +124,8 @@ export const sendMultipleNotificationToUsers = async (
         notification: {
           sound: "default",
           channelId: "alert_channel",
+          icon: "ic_notification",
+          color: "#F26702",
         },
       },
       apns: {
