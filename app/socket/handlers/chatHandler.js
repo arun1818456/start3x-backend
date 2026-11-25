@@ -1,11 +1,37 @@
+import mongoose from "mongoose";
 import Chat from "../../modules/chat/model.js";
 import Lead from "../../modules/lead/model.js";
+import User from "../../modules/user/model.js";
 import { notifyPasskeyUsersAndAdmins } from "../../utils/sendPush.js";
 import { validateSocketSession } from "../socket_io.js";
+
+export const canDeleteMessage = (msg, requester) => {
+    if (!msg || !requester || !requester.userId) return false;
+    const msgSenderId = (msg.senderId || "").toString().trim();
+    const reqUserId = requester.userId.toString().trim();
+    const msgSenderName = (msg.senderName || "").toString().trim().toLowerCase();
+    const reqRole = (requester.role || "").toString().trim().toLowerCase();
+    const reqName = (requester.name || "").toString().trim().toLowerCase();
+
+    // Admin can delete any message (own or any user's)
+    if (reqRole === "admin") return true;
+
+    if (msgSenderId) {
+        return msgSenderId === reqUserId;
+    }
+
+    // Legacy messages created without senderId
+    if (reqName && msgSenderName === reqName) return true;
+    return false;
+};
 
 export const handleJoinChat = async (io, socket, data) => {
     try {
         const { passkey, userId, userName, role, token } = data || {};
+        let resolvedUserId = userId;
+        let resolvedRole = role || 'user';
+        let resolvedName = userName;
+
         if (token) {
             const check = await validateSocketSession(token);
             if (!check.valid) {
@@ -15,17 +41,22 @@ export const handleJoinChat = async (io, socket, data) => {
                 return;
             }
             if (check.sessionId) socket.sessionId = check.sessionId;
+            if (check.authenticated) {
+                resolvedUserId = check.userId;
+                resolvedRole = check.role || resolvedRole;
+                resolvedName = check.name || resolvedName;
+            }
         }
 
         const room = passkey || 'default';
         socket.join(room);
-        if (userId) {
-            socket.join(`user_${userId}`);
+        if (resolvedUserId) {
+            socket.join(`user_${resolvedUserId}`);
         }
         socket.passkey = room;
-        socket.userId = userId;
-        socket.userName = userName;
-        socket.role = role || 'user';
+        socket.userId = resolvedUserId;
+        socket.userName = resolvedName || userName;
+        socket.role = resolvedRole;
         console.log(`💬 Socket ${socket.id} (${userName || 'User'} [Role: ${socket.role}]) joined chat room: ${room}`);
         socket.emit("joined_chat", { success: true, room });
     } catch (error) {
@@ -137,6 +168,166 @@ export const handleSendMessage = async (io, socket, data) => {
         }
     } catch (error) {
         console.error("handleSendMessage error:", error);
+        socket.emit("chat_error", { message: error.message });
+    }
+};
+
+export const handleDeleteMessage = async (io, socket, data) => {
+    try {
+        const { messageId, passkey, token } = data || {};
+        if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) {
+            socket.emit("chat_error", { message: "Invalid message ID" });
+            return;
+        }
+
+        let requester = null;
+        if (token) {
+            const check = await validateSocketSession(token);
+            if (!check.valid) {
+                socket.emit("session_expired", {
+                    message: "Your account was logged in on another device. Please login again.",
+                });
+                return;
+            }
+            if (check.authenticated) {
+                requester = {
+                    userId: check.userId,
+                    role: check.role,
+                    name: check.name,
+                };
+            }
+        }
+
+        if (!requester && socket.userId && mongoose.Types.ObjectId.isValid(socket.userId)) {
+            const dbUser = await User.findById(socket.userId).select("_id role name");
+            if (dbUser) {
+                requester = {
+                    userId: dbUser._id.toString(),
+                    role: dbUser.role || "user",
+                    name: dbUser.name || "",
+                };
+            }
+        }
+
+        if (!requester) {
+            socket.emit("chat_error", { message: "Please authenticate to delete messages" });
+            return;
+        }
+
+        const msg = await Chat.findById(messageId);
+        if (!msg) {
+            socket.emit("chat_error", { message: "Chat message not found" });
+            return;
+        }
+
+        if (!canDeleteMessage(msg, requester)) {
+            socket.emit("chat_error", { message: "You can only delete your own messages" });
+            return;
+        }
+
+        const deleted = await Chat.findByIdAndDelete(messageId);
+        if (!deleted) {
+            socket.emit("chat_error", { message: "Chat message not found" });
+            return;
+        }
+
+        const room = deleted.passkey || passkey || socket.passkey || "default";
+        io.to(room).emit("message_deleted", {
+            messageId: deleted._id.toString(),
+            passkey: room,
+        });
+        console.log(`🗑️ Message [${deleted._id}] deleted by [${requester.userId}] in room [${room}]`);
+    } catch (error) {
+        console.error("handleDeleteMessage error:", error);
+        socket.emit("chat_error", { message: error.message });
+    }
+};
+
+export const handleDeleteMultipleMessages = async (io, socket, data) => {
+    try {
+        const { messageIds, passkey, token } = data || {};
+        if (!Array.isArray(messageIds) || messageIds.length === 0) {
+            socket.emit("chat_error", { message: "Message IDs are required" });
+            return;
+        }
+
+        const validIds = [...new Set(
+            messageIds
+                .map((id) => (id || "").toString().trim())
+                .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        )];
+
+        if (validIds.length === 0) {
+            socket.emit("chat_error", { message: "Invalid message IDs" });
+            return;
+        }
+
+        let requester = null;
+        if (token) {
+            const check = await validateSocketSession(token);
+            if (!check.valid) {
+                socket.emit("session_expired", {
+                    message: "Your account was logged in on another device. Please login again.",
+                });
+                return;
+            }
+            if (check.authenticated) {
+                requester = {
+                    userId: check.userId,
+                    role: check.role,
+                    name: check.name,
+                };
+            }
+        }
+
+        if (!requester && socket.userId && mongoose.Types.ObjectId.isValid(socket.userId)) {
+            const dbUser = await User.findById(socket.userId).select("_id role name");
+            if (dbUser) {
+                requester = {
+                    userId: dbUser._id.toString(),
+                    role: dbUser.role || "user",
+                    name: dbUser.name || "",
+                };
+            }
+        }
+
+        if (!requester) {
+            socket.emit("chat_error", { message: "Please authenticate to delete messages" });
+            return;
+        }
+
+        const docs = await Chat.find({ _id: { $in: validIds } });
+        if (!docs || docs.length === 0) {
+            socket.emit("chat_error", { message: "Messages not found" });
+            return;
+        }
+
+        const deletableDocs = docs.filter((msg) => canDeleteMessage(msg, requester));
+        if (deletableDocs.length === 0) {
+            socket.emit("chat_error", { message: "You can only delete your own messages" });
+            return;
+        }
+
+        const deletableIds = deletableDocs.map((d) => d._id);
+        await Chat.deleteMany({ _id: { $in: deletableIds } });
+
+        // Group deleted message IDs by passkey room
+        const byRoom = {};
+        for (const d of deletableDocs) {
+            const r = d.passkey || passkey || socket.passkey || "default";
+            if (!byRoom[r]) byRoom[r] = [];
+            byRoom[r].push(d._id.toString());
+        }
+
+        for (const [room, ids] of Object.entries(byRoom)) {
+            io.to(room).emit("messages_deleted", {
+                messageIds: ids,
+                passkey: room,
+            });
+            console.log(`🗑️ ${ids.length} messages deleted by [${requester.userId}] in room [${room}]`);
+        }
+    } catch (error) {
+        console.error("handleDeleteMultipleMessages error:", error);
         socket.emit("chat_error", { message: error.message });
     }
 };

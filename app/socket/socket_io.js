@@ -1,7 +1,7 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import User from "../modules/user/model.js";
-import { handleJoinChat, handleSendMessage, handleTyping } from "./handlers/chatHandler.js";
+import { handleJoinChat, handleSendMessage, handleDeleteMessage, handleDeleteMultipleMessages, handleTyping } from "./handlers/chatHandler.js";
 import { handleDisconnect } from "./handlers/disconnect.js";
 
 let ioInstance = null;
@@ -14,7 +14,7 @@ export const validateSocketSession = async (token) => {
         const userId = userPayload.id || userPayload._id;
         if (!userId) return { valid: false };
 
-        const dbUser = await User.findById(userId).select("_id activeSessionId");
+        const dbUser = await User.findById(userId).select("_id activeSessionId role name passkey");
         if (!dbUser) return { valid: false };
 
         if (dbUser.activeSessionId) {
@@ -28,7 +28,11 @@ export const validateSocketSession = async (token) => {
         }
         return {
             valid: true,
+            authenticated: true,
             userId: dbUser._id.toString(),
+            role: dbUser.role || "user",
+            name: dbUser.name || "",
+            passkey: dbUser.passkey || "",
             sessionId: userPayload.sessionId || "",
         };
     } catch (_) {
@@ -78,6 +82,18 @@ export const initSocketIO = (server) => {
         socket.on("send_message", (data) => {
             console.log(`📥 send_message received from ${socket.id}:`, data);
             handleSendMessage(io, socket, data);
+        });
+
+        // Delete chat message
+        socket.on("delete_message", (data) => {
+            console.log(`🗑️ delete_message received from ${socket.id}:`, data);
+            handleDeleteMessage(io, socket, data);
+        });
+
+        // Delete multiple chat messages
+        socket.on("delete_messages", (data) => {
+            console.log(`🗑️ delete_messages received from ${socket.id}:`, data);
+            handleDeleteMultipleMessages(io, socket, data);
         });
 
         // Typing indicator

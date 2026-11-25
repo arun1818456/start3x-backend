@@ -1,8 +1,10 @@
+import mongoose from "mongoose";
 import Chat from "./model.js";
 import Lead from "../lead/model.js";
 import "../response/model.js";
 import { sendResponse } from "../../utils/sendResposeType.js";
 import { getIO } from "../../socket/socket_io.js";
+import { canDeleteMessage } from "../../socket/handlers/chatHandler.js";
 import { notifyPasskeyUsersAndAdmins } from "../../utils/sendPush.js";
 
 // ✅ CREATE / SEND CHAT MESSAGE (WITH OPTIONAL FLAGGED LEAD)
@@ -142,17 +144,129 @@ export const getChatMessages = async (req, res) => {
     }
 };
 
-// ✅ DELETE CHAT MESSAGE
+// ✅ DELETE CHAT MESSAGE (ONLY OWNER CAN DELETE)
 export const deleteChatMessage = async (req, res) => {
     try {
+        if (!req.user) {
+            return sendResponse(res, 401, false, "Please authenticate");
+        }
+
         const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return sendResponse(res, 400, false, "Invalid chat message ID");
+        }
+
+        const msg = await Chat.findById(id);
+        if (!msg) {
+            return sendResponse(res, 404, false, "Chat message not found");
+        }
+
+        const requester = {
+            userId: (req.user._id || req.user.id || "").toString(),
+            role: req.user.role || "user",
+            name: req.user.name || "",
+        };
+
+        if (!canDeleteMessage(msg, requester)) {
+            return sendResponse(res, 403, false, "You can only delete your own messages");
+        }
+
         const deleted = await Chat.findByIdAndDelete(id);
         if (!deleted) {
             return sendResponse(res, 404, false, "Chat message not found");
         }
+
+        // Broadcast deletion to everyone in the passkey room in real-time
+        try {
+            const io = getIO();
+            if (io) {
+                const room = deleted.passkey || "default";
+                io.to(room).emit("message_deleted", {
+                    messageId: deleted._id.toString(),
+                    passkey: room,
+                });
+                console.log(`🗑️ HTTP chat message [${deleted._id}] deleted & emitted to room [${room}]`);
+            }
+        } catch (socketErr) {
+            console.error("Socket emit error in deleteChatMessage:", socketErr);
+        }
+
         return sendResponse(res, 200, true, "Chat message deleted successfully", deleted);
     } catch (error) {
         console.error("Delete Chat Message Error:", error);
         return sendResponse(res, 500, false, "Error deleting chat message", null, error.message);
+    }
+};
+
+// ✅ DELETE MULTIPLE CHAT MESSAGES (OWNER OR ADMIN)
+export const deleteMultipleChatMessages = async (req, res) => {
+    try {
+        if (!req.user) {
+            return sendResponse(res, 401, false, "Please authenticate");
+        }
+
+        const { messageIds } = req.body || {};
+        if (!Array.isArray(messageIds) || messageIds.length === 0) {
+            return sendResponse(res, 400, false, "Message IDs are required");
+        }
+
+        const validIds = [...new Set(
+            messageIds
+                .map((id) => (id || "").toString().trim())
+                .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        )];
+
+        if (validIds.length === 0) {
+            return sendResponse(res, 400, false, "Invalid chat message IDs");
+        }
+
+        const docs = await Chat.find({ _id: { $in: validIds } });
+        if (!docs || docs.length === 0) {
+            return sendResponse(res, 404, false, "Chat messages not found");
+        }
+
+        const requester = {
+            userId: (req.user._id || req.user.id || "").toString(),
+            role: req.user.role || "user",
+            name: req.user.name || "",
+        };
+
+        const deletableDocs = docs.filter((msg) => canDeleteMessage(msg, requester));
+        if (deletableDocs.length === 0) {
+            return sendResponse(res, 403, false, "You can only delete your own messages");
+        }
+
+        const deletableIds = deletableDocs.map((d) => d._id);
+        await Chat.deleteMany({ _id: { $in: deletableIds } });
+
+        // Broadcast deletion to each affected passkey room in real-time
+        try {
+            const io = getIO();
+            if (io) {
+                const byRoom = {};
+                for (const d of deletableDocs) {
+                    const room = d.passkey || "default";
+                    if (!byRoom[room]) byRoom[room] = [];
+                    byRoom[room].push(d._id.toString());
+                }
+                for (const [room, ids] of Object.entries(byRoom)) {
+                    io.to(room).emit("messages_deleted", {
+                        messageIds: ids,
+                        passkey: room,
+                    });
+                    console.log(`🗑️ HTTP batch deleted ${ids.length} messages & emitted to room [${room}]`);
+                }
+            }
+        } catch (socketErr) {
+            console.error("Socket emit error in deleteMultipleChatMessages:", socketErr);
+        }
+
+        return sendResponse(res, 200, true, "Messages deleted successfully", {
+            deletedIds: deletableDocs.map((d) => d._id.toString()),
+            deletedCount: deletableDocs.length,
+        });
+    } catch (error) {
+        console.error("Delete Multiple Chat Messages Error:", error);
+        return sendResponse(res, 500, false, "Error deleting chat messages", null, error.message);
     }
 };
